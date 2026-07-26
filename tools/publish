@@ -22,8 +22,9 @@ IMAGES=(dist/*.tfs)
 MANIFESTS=(dist/*.manifest.yaml)
 [ "${#IMAGES[@]}" -gt 0 ] || { echo "publish: no payload images in dist/" >&2; exit 1; }
 
-# --- SHA256SUMS over everything published ----------------------------
-( cd dist && sha256sum -- * ) > dist/SHA256SUMS
+# --- SHA256SUMS over the payload images + manifests -------------------
+# (explicit globs: the sums file itself must not be summed)
+( cd dist && sha256sum -- *.tfs *.manifest.yaml ) > dist/SHA256SUMS
 cat dist/SHA256SUMS
 
 # --- resolved registry for this release -------------------------------
@@ -34,7 +35,10 @@ name = r.fetch('name')
 version = r.dig('upstream', 'version') or abort "publish: upstream.version missing"
 base = "https://github.com/#{repo}/releases/download/#{tag}"
 
-sums = File.readlines('dist/SHA256SUMS').map(&:split).to_h
+sums = File.readlines('dist/SHA256SUMS').map do |l|
+  h, f = l.chomp.split(/\s+/, 2)
+  [f.sub(/^\*/, ''), h]   # sha256sum marks binary mode with a leading '*'
+end.to_h
 platforms = Dir.glob('dist/*.tfs').sort.map do |f|
   art = File.basename(f)
   prefix = "#{name}-#{version}-"
