@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# tools/build — build one (version × platform) leg of a feedstock.
+#
+#   tools/build [RECIPE] VERSION PLATFORM
+#
+# fetch upstream (sha256-verified) → apply patches/ → configure → make →
+# install into a staging tree → pack the staging tree as a dwarfs/tfs
+# image with the factory mkdwarfs (sha256-verified against the pinned
+# tool release).
+#
+# Hermetic flags: the recipe is the source of truth. Ambient
+# CFLAGS/CPPFLAGS/LDFLAGS & friends from the host (e.g. homebrew LLVM
+# paths in a developer shell) are dropped so configure probes run against
+# the platform toolchain only; LDFLAGS carries exactly the recipe rpath.
+#
+# Outputs (all under out/<platform>/):
+#   payload.tfs   the packed staging tree
+#   root/         the staging tree itself (kept for inspection)
+#   tools/        verified factory tools (mkdwarfs, tebakofs)
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+. "$HERE/lib/common.sh"
+
+RECIPE="recipe.yml"
+case "${1:-}" in
+  *.yml|*.yaml) RECIPE="$1"; shift ;;
+esac
+VERSION="${1:?usage: tools/build [RECIPE] VERSION PLATFORM}"
+PLATFORM="${2:?usage: tools/build [RECIPE] VERSION PLATFORM}"
+
+NAME="$("$HERE/recipe_query" "$RECIPE" name)"
+UP_URL="$("$HERE/recipe_query" "$RECIPE" upstream.url)"
+UP_SHA="$("$HERE/recipe_query" "$RECIPE" upstream.sha256)"
+UP_VER="$("$HERE/recipe_query" "$RECIPE" upstream.version)"
+SYSTEM="$("$HERE/recipe_query" "$RECIPE" build.system)"
+LINK_MODE="$("$HERE/recipe_query" "$RECIPE" build.link_mode)"
+RPATH_ORIGIN="$("$HERE/recipe_query" "$RECIPE" build.rpath_origin)"
+TOOLS_REPO="$("$HERE/recipe_query" "$RECIPE" tools.repo)"
+TOOLS_REL="$("$HERE/recipe_query" "$RECIPE" tools.release)"
+
+# --- hard checks: no silent fallbacks --------------------------------
+[ "$VERSION" = "$UP_VER" ] || {
+  echo "build: requested version '$VERSION' != recipe upstream.version '$UP_VER'" >&2; exit 1; }
+[ "$SYSTEM" = "autotools" ] || {
+  echo "build: build.system '$SYSTEM' not implemented by this feedstock" >&2; exit 1; }
+"$HERE/recipe_query" "$RECIPE" platforms | grep -q "\"$PLATFORM\"" || {
+  echo "build: platform '$PLATFORM' not listed in recipe platforms" >&2; exit 1; }
+
+TOP="$(pwd)"
+WORK="work/$PLATFORM"
+OUT="out/$PLATFORM"
+SRC_TARBALL="$WORK/src/$(basename "$UP_URL")"
+ROOT="$OUT/root"
+mkdir -p "$WORK/src" "$OUT/tools"
+rm -rf "$WORK/build" "$ROOT"   # scratch dirs: start each leg clean
+mkdir -p "$WORK/build" "$ROOT"
+
+# --- fetch + verify upstream -----------------------------------------
+if [ ! -f "$SRC_TARBALL" ]; then
+  fetch_verified "$UP_URL" "$UP_SHA" "$SRC_TARBALL"
+else
+  # cached tarballs are re-verified, never trusted
+  got="$(sha256_of "$SRC_TARBALL")"
+  [ "$got" = "$UP_SHA" ] || { echo "build: cached tarball sha256 mismatch, refetch" >&2
+    fetch_verified "$UP_URL" "$UP_SHA" "$SRC_TARBALL"; }
+fi
+tar -xf "$SRC_TARBALL" -C "$WORK/build" --strip-components 1
+
+# --- patches (docs/conventions.md naming: whole-line -x- default, -----
+# exact-version supersede; a patch that fails `git apply --check`
+# aborts the build) -----------------------------------------------------
+MAJMIN="$(printf '%s' "$VERSION" | awk -F. '{print $1"-"$2}')"
+VERDASHED="${VERSION//./-}"
+PATCHES=()
+for p in patches/tfs-"$NAME"-"$MAJMIN"-x-*.patch; do
+  [ -e "$p" ] || continue
+  slug="${p#patches/tfs-"$NAME"-"$MAJMIN"-x-}"; slug="${slug%.patch}"
+  superseded=0
+  for e in patches/tfs-"$NAME"-"$VERDASHED"-*.patch; do
+    [ -e "$e" ] || continue
+    eslug="${e#patches/tfs-"$NAME"-"$VERDASHED"-}"; eslug="${eslug%.patch}"
+    [ "$eslug" = "$slug" ] && { superseded=1; break; }
+  done
+  [ "$superseded" = 1 ] || PATCHES+=("$p")
+done
+for p in patches/tfs-"$NAME"-"$VERDASHED"-*.patch; do
+  [ -e "$p" ] || continue
+  case "$p" in patches/tfs-"$NAME"-"$MAJMIN"-x-*.patch) continue ;; esac
+  PATCHES+=("$p")
+done
+if [ "${#PATCHES[@]}" -gt 0 ]; then
+  while IFS= read -r p; do
+    echo "build: applying patch $p"
+    # GIT_CEILING_DIRECTORIES: the build tree sits inside the feedstock
+    # repo; without a ceiling git apply resolves patch paths against the
+    # repo top-level and SILENTLY SKIPS them (exit 0, nothing applied).
+    GIT_CEILING_DIRECTORIES="$TOP" git -C "$WORK/build" apply --check "$TOP/$p" || {
+      echo "build: patch fails git apply --check: $p" >&2; exit 1; }
+    GIT_CEILING_DIRECTORIES="$TOP" git -C "$WORK/build" apply "$TOP/$p"
+  done < <(printf '%s\n' "${PATCHES[@]}" | sort)
+fi
+
+# --- configure / make / install --------------------------------------
+# prefix=/ : the staging tree IS the payload root, so provides paths
+# (/bin/hello) land at the image root. Dynamic builds carry the
+# relocatable $ORIGIN/../lib rpath per docs/conventions.md.
+unset CFLAGS CPPFLAGS CXXFLAGS LIBRARY_PATH CPATH PKG_CONFIG_PATH LDFLAGS
+LDFLAGS=""
+if [ "$LINK_MODE" = "dynamic" ] && [ "$RPATH_ORIGIN" = "true" ]; then
+  case "$PLATFORM" in
+    *-linux-gnu) LDFLAGS="-Wl,-rpath,\$ORIGIN/../lib" ;;
+    *-macos)     LDFLAGS="-Wl,-rpath,@loader_path/../lib" ;;
+  esac
+fi
+
+cd "$WORK/build"
+LDFLAGS="$LDFLAGS" ./configure --prefix=/
+make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
+make install DESTDIR="$TOP/$ROOT"
+cd "$TOP"
+
+# every declared executable must exist in the staging tree
+N_EXES=$("$HERE/recipe_query" "$RECIPE" provides.executables | ruby -rjson -e 'puts JSON.parse(STDIN.read).length')
+for i in $(seq 0 $((N_EXES - 1))); do
+  p="$("$HERE/recipe_query" "$RECIPE" "provides.executables.$i.path")"
+  [ -x "$ROOT$p" ] || { echo "build: declared executable missing in staging tree: $p" >&2; exit 1; }
+done
+
+# --- factory tools (sha256-verified) ---------------------------------
+download_tool mkdwarfs "$PLATFORM" "$OUT/tools" "$TOOLS_REPO" "$TOOLS_REL"
+download_tool tebakofs "$PLATFORM" "$OUT/tools" "$TOOLS_REPO" "$TOOLS_REL"
+
+# --- pack the payload image -------------------------------------------
+"$OUT/tools/mkdwarfs" -i "$ROOT" -o "$OUT/payload.tfs" --no-progress --set-owner 0
+
+echo "build: OK  $NAME $VERSION ($PLATFORM)"
+echo "  image:  $OUT/payload.tfs"
+echo "  sha256: $(sha256_of "$OUT/payload.tfs")"

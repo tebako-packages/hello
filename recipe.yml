@@ -1,0 +1,37 @@
+# Feedstock recipe for hello
+# spec 13 §9 + docs/conventions.md in tebako-packages/index
+name: "hello"
+kind: toolkit
+summary: "GNU hello — template prover payload for tebako-packages"
+
+upstream:
+  url: "https://ftp.gnu.org/gnu/hello/hello-2.12.tar.gz"
+  sha256: "cf04af86dc085268c5f4470fbae49b18afbc221b78096aab842d934a76bad0ab"
+  version: "2.12"
+
+build:
+  system: autotools        # autotools | cmake | meson
+  link_mode: dynamic       # dynamic | wrapped | tfs-native | static
+  rpath_origin: true       # $ORIGIN/../lib for dynamic builds
+  deps: []                 # other feedstocks: [{name, constraint, mount}]
+
+# Factory tools used by tools/build (image creation). The dwarfs-t
+# mkdwarfs/tebakofs binaries ship as per-platform assets of libtfs
+# releases; every download is verified against the release's SHA256SUMS.
+tools:
+  repo: "tamatebako/libtfs"
+  release: "v0.13.0"
+
+platforms:
+  - x86_64-linux-gnu
+  # - aarch64-linux-gnu    # optional per feedstock brief; enable when proven
+  - aarch64-macos
+  - x86_64-macos
+
+provides:
+  executables:
+    - {name: "hello", path: "/bin/hello", version: "2.12"}
+  libraries: []
+
+exec_tier: dynamic         # from build.link_mode
+exec_closure: []           # static tier only

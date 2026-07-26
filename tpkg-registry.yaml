@@ -1,0 +1,9 @@
+schema_version: 1
+# Feedstock registry for tebako-packages/hello (see tebako-packages/index).
+# This root copy is the feedstock's declared identity; each release carries
+# a resolved tpkg-registry.yaml (artifact URLs + sha256) as an asset.
+packages:
+  - name: hello
+    kind: toolkit
+    summary: "GNU hello — template prover payload for tebako-packages"
+    releases_url: "https://github.com/tebako-packages/hello/releases"

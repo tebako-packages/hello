@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# tools/boot_smoke — run the packaged tool from a built payload image.
+#
+#   tools/boot_smoke OUT_DIR [RECIPE]
+#
+# OUT_DIR is one build leg's out/<platform> directory (must contain
+# payload.tfs and the verified factory tebakofs in tools/).
+#
+# Mode: tebakofs-extract. The libtfs factory releases ship no FUSE
+# mounter (and CI runners have no FUSE on macOS), so the smoke extracts
+# the image with the same verified tool that inspects it and runs the
+# binary natively. That is exactly the dynamic-tier binary the payload
+# will interpose on; the exec shim itself is out of smoke scope.
+#
+# Known limitation worked around below: `tebakofs extract` streams file
+# CONTENT but does not restore permission bits (libtfs tebakofs.cpp
+# extract_file has no chmod; the image itself stores real modes —
+# verified with dwarfsck). The smoke therefore restores the exec bit on
+# the recipe-declared executables after extraction, loudly.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+. "$HERE/lib/common.sh"
+
+OUT="${1:?usage: tools/boot_smoke OUT_DIR [RECIPE]}"
+RECIPE="${2:-recipe.yml}"
+IMAGE="$OUT/payload.tfs"
+TEBAKOFS="$OUT/tools/tebakofs"
+
+[ -f "$IMAGE" ]   || { echo "boot_smoke: no payload image at $IMAGE" >&2; exit 1; }
+[ -x "$TEBAKOFS" ] || { echo "boot_smoke: no factory tebakofs at $TEBAKOFS" >&2; exit 1; }
+
+EXE_NAME="$("$HERE/recipe_query" "$RECIPE" provides.executables.0.name)"
+EXE_PATH="$("$HERE/recipe_query" "$RECIPE" provides.executables.0.path)"
+EXE_VER="$("$HERE/recipe_query" "$RECIPE" provides.executables.0.version)"
+
+echo "boot_smoke: mode=tebakofs-extract image=$IMAGE exe=$EXE_PATH@$EXE_VER"
+
+echo "--- image info ---"
+"$TEBAKOFS" info "$IMAGE"
+echo "--- image tree ---"
+"$TEBAKOFS" tree "$IMAGE"
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+"$TEBAKOFS" extract -d "$TMP" "$IMAGE" >/dev/null
+
+# tebakofs extract does not restore permission bits (see header note);
+# re-mark every recipe-declared executable, then require it to be so.
+N_EXES=$("$HERE/recipe_query" "$RECIPE" provides.executables | ruby -rjson -e 'puts JSON.parse(STDIN.read).length')
+for i in $(seq 0 $((N_EXES - 1))); do
+  p="$("$HERE/recipe_query" "$RECIPE" "provides.executables.$i.path")"
+  [ -f "$TMP$p" ] || { echo "boot_smoke: FAIL — $p missing from image" >&2; exit 1; }
+  echo "boot_smoke: chmod 0755 extracted $p (exec bit not restored by tebakofs extract)"
+  chmod 0755 "$TMP$p"
+done
+
+BIN="$TMP$EXE_PATH"
+[ -x "$BIN" ] || { echo "boot_smoke: FAIL — $EXE_PATH not executable in image" >&2; exit 1; }
+
+echo "--- run: $EXE_PATH --version (from extracted image) ---"
+VER_OUT="$("$BIN" --version 2>&1 | head -1)"
+echo "$VER_OUT"
+case "$VER_OUT" in
+  *"$EXE_VER"*) : ;;
+  *) echo "boot_smoke: FAIL — version output does not contain '$EXE_VER'" >&2; exit 1 ;;
+esac
+
+echo "--- run: $EXE_PATH (functional) ---"
+RUN_OUT="$("$BIN" 2>&1)"
+echo "$RUN_OUT"
+[ -n "$RUN_OUT" ] || { echo "boot_smoke: FAIL — empty output" >&2; exit 1; }
+
+echo "boot_smoke: PASS ($EXE_NAME $EXE_VER)"

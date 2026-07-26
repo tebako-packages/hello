@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# tools/publish — publish a feedstock release for the current tag.
+#
+#   tools/publish            (CI: tag push; needs GH_TOKEN, GITHUB_REF_NAME,
+#                             GITHUB_REPOSITORY; dist/ holds every leg's
+#                             staged artifacts, merged by download-artifact)
+#
+# Publishes: per-triplet payload images + manifests, SHA256SUMS, and the
+# resolved tpkg-registry.yaml (artifact URLs + sha256) for this release.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+. "$HERE/lib/common.sh"
+
+RECIPE="${RECIPE:-recipe.yml}"
+TAG="${GITHUB_REF_NAME:?publish: GITHUB_REF_NAME (tag) not set — run on a tag push}"
+REPO="${GITHUB_REPOSITORY:?publish: GITHUB_REPOSITORY not set}"
+: "${GH_TOKEN:?publish: GH_TOKEN not set}"
+
+shopt -s nullglob
+IMAGES=(dist/*.tfs)
+MANIFESTS=(dist/*.manifest.yaml)
+[ "${#IMAGES[@]}" -gt 0 ] || { echo "publish: no payload images in dist/" >&2; exit 1; }
+
+# --- SHA256SUMS over everything published ----------------------------
+( cd dist && sha256sum -- * ) > dist/SHA256SUMS
+cat dist/SHA256SUMS
+
+# --- resolved registry for this release -------------------------------
+ruby -ryaml -rjson - "$RECIPE" "$TAG" "$REPO" <<'RUBY' > dist/tpkg-registry.yaml
+recipe, tag, repo = ARGV
+r = YAML.load_file(recipe)
+name = r.fetch('name')
+version = r.dig('upstream', 'version') or abort "publish: upstream.version missing"
+base = "https://github.com/#{repo}/releases/download/#{tag}"
+
+sums = File.readlines('dist/SHA256SUMS').map(&:split).to_h
+platforms = Dir.glob('dist/*.tfs').sort.map do |f|
+  art = File.basename(f)
+  prefix = "#{name}-#{version}-"
+  abort "publish: artifact '#{art}' does not match #{name}-#{version}-<triplet>.tfs" unless art.start_with?(prefix)
+  triplet = art.delete_prefix(prefix).delete_suffix('.tfs')
+  { 'triplet' => triplet, 'url' => "#{base}/#{art}",
+    'sha256' => sums.fetch(art) { abort "publish: #{art} missing from SHA256SUMS" },
+    'manifest' => "#{base}/#{art.sub(/\.tfs$/, '.manifest.yaml')}" }
+end
+
+puts YAML.dump(
+  'schema_version' => 1,
+  'packages' => [{
+    'name' => name,
+    'kind' => r.fetch('kind', 'toolkit'),
+    'summary' => r.fetch('summary', ''),
+    'versions' => [{ 'version' => tag, 'platforms' => platforms }],
+  }]
+)
+RUBY
+echo "--- dist/tpkg-registry.yaml ---"
+cat dist/tpkg-registry.yaml
+
+# --- release -----------------------------------------------------------
+TITLE="$("$HERE/recipe_query" "$RECIPE" name) $TAG"
+NOTES="tebako toolkit payload — built from recipe.yml by build-payload.yml. "$'\n'"\
+Artifacts: per-triplet .tfs payload images + spec-03 manifests, SHA256SUMS, resolved tpkg-registry.yaml."
+
+if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+  echo "publish: release $TAG exists — uploading (clobber)"
+  gh release upload "$TAG" --repo "$REPO" --clobber \
+    "${IMAGES[@]}" "${MANIFESTS[@]}" dist/SHA256SUMS dist/tpkg-registry.yaml
+else
+  gh release create "$TAG" --repo "$REPO" --title "$TITLE" --notes "$NOTES" \
+    "${IMAGES[@]}" "${MANIFESTS[@]}" dist/SHA256SUMS dist/tpkg-registry.yaml
+fi
+
+echo "publish: OK — https://github.com/$REPO/releases/tag/$TAG"

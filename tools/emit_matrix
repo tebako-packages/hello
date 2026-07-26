@@ -1,0 +1,30 @@
+#!/usr/bin/env ruby
+# emit_matrix — emit the GitHub Actions build matrix from a feedstock recipe.
+# Usage: ruby tools/emit_matrix recipe.yml
+# Prints one JSON object: {"include":[{version, platform, runner}, ...]}
+# One leg per (upstream version × platform) in the recipe. Unknown
+# platforms are a hard error — per-platform handling is a recipe feature,
+# not a hack (docs/conventions.md).
+
+require 'yaml'
+require 'json'
+
+RUNNERS = {
+  'x86_64-linux-gnu' => 'ubuntu-24.04',
+  'aarch64-linux-gnu' => 'ubuntu-24.04-arm',
+  'aarch64-macos'    => 'macos-14',
+  'x86_64-macos'     => 'macos-13',
+}.freeze
+
+abort "usage: ruby tools/emit_matrix RECIPE" unless ARGV[0]
+recipe = YAML.load_file(ARGV[0])
+
+version = recipe.dig('upstream', 'version') or abort "emit_matrix: upstream.version missing"
+platforms = recipe['platforms'] or abort "emit_matrix: platforms missing"
+
+legs = platforms.map do |triplet|
+  runner = RUNNERS[triplet] or abort "emit_matrix: no runner mapped for platform '#{triplet}'"
+  { version: version, platform: triplet, runner: runner }
+end
+
+puts JSON.generate(include: legs)

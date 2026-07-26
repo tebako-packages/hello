@@ -1,0 +1,4 @@
+# build scratch + staged artifacts (tools/build, tools/stage)
+work/
+out/
+dist/
