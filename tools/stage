@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# tools/stage — name a built payload and fill its manifest from the recipe.
+# tools/stage — name a built payload, embed its manifest, repack, and
+# fill the sidecar manifest from the recipe.
 #
 #   tools/stage OUT_DIR PLATFORM [RECIPE]
 #
 # Produces in dist/:
-#   <name>-<version>-<platform>.tfs             the payload image
-#   <name>-<version>-<platform>.manifest.yaml   manifest (spec 03), filled
-#                                               from recipe.yml + the image
+#   <name>-<version>-<platform>.tfs             the payload image (with
+#                                               /__tpkg__/manifest.yaml inside)
+#   <name>-<version>-<platform>.manifest.yaml   the sidecar manifest (spec 03),
+#                                               carrying the artifact's digest
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -16,37 +18,55 @@ OUT="${1:?usage: tools/stage OUT_DIR PLATFORM [RECIPE]}"
 PLATFORM="${2:?usage: tools/stage OUT_DIR PLATFORM [RECIPE]}"
 RECIPE="${3:-recipe.yml}"
 IMAGE="$OUT/payload.tfs"
+ROOT="$OUT/root"
 [ -f "$IMAGE" ] || { echo "stage: no payload image at $IMAGE (run tools/build first)" >&2; exit 1; }
+[ -d "$ROOT" ] || { echo "stage: no staging tree at $ROOT (run tools/build first)" >&2; exit 1; }
 
 NAME="$("$HERE/recipe_query" "$RECIPE" name)"
 VERSION="$("$HERE/recipe_query" "$RECIPE" upstream.version)"
 UP_SHA="$("$HERE/recipe_query" "$RECIPE" upstream.sha256)"
 PLATFORMS="$("$HERE/recipe_query" "$RECIPE" platforms)"   # JSON == YAML flow
-BLOB_SHA="$(sha256_of "$IMAGE")"
 CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 FEEDSTOCK_SHA="$(git rev-parse --verify -q HEAD 2>/dev/null || true)"
 [ -n "$FEEDSTOCK_SHA" ] || FEEDSTOCK_SHA="worktree-uncommitted"
 
-mkdir -p dist
+fill_manifest() {  # $1 = blob_sha256 to inscribe
+  sed -e "s/@@NAME@@/$NAME/g" \
+      -e "s/@@VERSION@@/$VERSION/g" \
+      -e "s/@@CREATED@@/$CREATED/g" \
+      -e "s/@@UPSTREAM_SHA256@@/$UP_SHA/g" \
+      -e "s/@@FEEDSTOCK_SHA@@/$FEEDSTOCK_SHA/g" \
+      -e "s/@@BLOB_SHA256@@/$1/g" \
+      -e "s/@@PLATFORMS@@/$PLATFORMS/g" \
+      manifests/payload.yaml
+}
+
+check_filled() {  # any placeholder left behind means template drift — fail loudly
+  if grep -q '@@[A-Z_]*@@' "$1"; then
+    echo "stage: unfilled placeholders in $1:" >&2
+    grep '@@[A-Z_]*@@' "$1" >&2
+    exit 1
+  fi
+}
+
+mkdir -p dist "$ROOT/__tpkg__"
 ART="dist/${NAME}-${VERSION}-${PLATFORM}.tfs"
 MAN="dist/${NAME}-${VERSION}-${PLATFORM}.manifest.yaml"
+ZEROS="$(printf '0%.0s' $(seq 64))"
+
+# The EMBEDDED manifest (tier 1, authoritative): the in-image digest can
+# never name the image that carries it — the zeros placeholder stands;
+# the .sha256 sidecar / the registry pin stays the trust anchor.
+fill_manifest "$ZEROS" > "$ROOT/__tpkg__/manifest.yaml"
+check_filled "$ROOT/__tpkg__/manifest.yaml"
+
+# repack with the manifest inside (same factory tool + flags as tools/build)
+"$OUT/tools/mkdwarfs" -i "$ROOT" -o "$IMAGE" --no-progress --set-owner 0
+
+BLOB_SHA="$(sha256_of "$IMAGE")"
+fill_manifest "$BLOB_SHA" > "$MAN"
+check_filled "$MAN"
 cp "$IMAGE" "$ART"
-
-sed -e "s/@@NAME@@/$NAME/g" \
-    -e "s/@@VERSION@@/$VERSION/g" \
-    -e "s/@@CREATED@@/$CREATED/g" \
-    -e "s/@@UPSTREAM_SHA256@@/$UP_SHA/g" \
-    -e "s/@@FEEDSTOCK_SHA@@/$FEEDSTOCK_SHA/g" \
-    -e "s/@@BLOB_SHA256@@/$BLOB_SHA/g" \
-    -e "s/@@PLATFORMS@@/$PLATFORMS/g" \
-    manifests/payload.yaml > "$MAN"
-
-# any placeholder left behind means template drift — fail loudly
-if grep -q '@@[A-Z_]*@@' "$MAN"; then
-  echo "stage: unfilled placeholders in $MAN:" >&2
-  grep '@@[A-Z_]*@@' "$MAN" >&2
-  exit 1
-fi
 
 echo "stage: OK"
 echo "  artifact: $ART"

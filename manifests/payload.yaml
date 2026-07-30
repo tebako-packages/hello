@@ -18,8 +18,6 @@ provides:
   executables:
     - {name: "@@NAME@@", path: "/bin/@@NAME@@", version: "@@VERSION@@"}
   libraries: []
-exec_tier: dynamic
-exec_closure: []
-platforms: @@PLATFORMS@@
-capabilities: {exec: true, read: true}
+  platforms: @@PLATFORMS@@
+  capabilities: {exec: true, read: true}
 requires: []             # toolkit deps: {kind: toolkit, name, constraint, mount}

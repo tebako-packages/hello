@@ -1,9 +1,21 @@
 schema_version: 1
-# Feedstock registry for tebako-packages/hello (see tebako-packages/index).
-# This root copy is the feedstock's declared identity; each release carries
-# a resolved tpkg-registry.yaml (artifact URLs + sha256) as an asset.
-packages:
+# tebako-packages/hello — this feedstock's payload registry.
+# Consumed as tfs:github:tebako-packages/hello (default-branch form).
+payloads:
   - name: hello
     kind: toolkit
     summary: "GNU hello — template prover payload for tebako-packages"
-    releases_url: "https://github.com/tebako-packages/hello/releases"
+    default: "2.12"
+    versions:
+      - version: "2.12"
+        platforms:
+          aarch64-macos:
+            artifact: hello-2.12-aarch64-macos.tfs
+            sha256: "fde3ea2d9d3127dea19fd9f2e8f71d4b093c66498a9956c0756ab1e95d8a885a"
+          x86_64-macos:
+            artifact: hello-2.12-x86_64-macos.tfs
+            sha256: "0f90dfdbee69b6d2b4fb63c3d123c4c6adcc0e13268b499243e3f7a2b407b60d"
+          x86_64-linux-gnu:
+            artifact: hello-2.12-x86_64-linux-gnu.tfs
+            sha256: "3f415369565cfbdfbe947d18d073d502d5570c623b71055cd0f7e0062df3d81b"
+        release: {ref: tfs:github:tebako-packages/hello:2.12}
