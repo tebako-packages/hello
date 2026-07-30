@@ -10,8 +10,8 @@ require 'yaml'
 require 'json'
 
 RUNNERS = {
-  'x86_64-linux-gnu' => 'ubuntu-24.04',
-  'aarch64-linux-gnu' => 'ubuntu-24.04-arm',
+  'x86_64-linux-gnu' => 'ubuntu-22.04',
+  'aarch64-linux-gnu' => 'ubuntu-22.04-arm',
   'aarch64-macos'    => 'macos-14',
   'x86_64-macos'     => 'macos-15-intel',
 }.freeze
