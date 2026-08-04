@@ -63,15 +63,29 @@ jobs:
             mingw-w64-ucrt-x86_64-toolchain
             mingw-w64-ucrt-x86_64-ruby
       - name: Build ${{ matrix.version }} (${{ matrix.platform }})
-        shell: ${{ matrix.shell }}
+        if: matrix.platform != 'x86_64-windows-ucrt'
+        run: tools/build recipe.yml "${{ matrix.version }}" "${{ matrix.platform }}"
+      - name: Build ${{ matrix.version }} (${{ matrix.platform }}, ucrt64)
+        if: matrix.platform == 'x86_64-windows-ucrt'
+        # the matrix context is not available to step-level `shell`, so
+        # the windows leg gets its own step with the literal msys2 keyword
+        shell: msys2 {0}
         run: tools/build recipe.yml "${{ matrix.version }}" "${{ matrix.platform }}"
       - name: Boot-smoke
         # Hard rule (docs/conventions.md): the packaged tool's --version
         # runs from the image before any release publishes.
-        shell: ${{ matrix.shell }}
+        if: matrix.platform != 'x86_64-windows-ucrt'
+        run: tools/boot_smoke "out/${{ matrix.platform }}"
+      - name: Boot-smoke (ucrt64)
+        if: matrix.platform == 'x86_64-windows-ucrt'
+        shell: msys2 {0}
         run: tools/boot_smoke "out/${{ matrix.platform }}"
       - name: Stage artifact
-        shell: ${{ matrix.shell }}
+        if: matrix.platform != 'x86_64-windows-ucrt'
+        run: tools/stage "out/${{ matrix.platform }}" "${{ matrix.platform }}"
+      - name: Stage artifact (ucrt64)
+        if: matrix.platform == 'x86_64-windows-ucrt'
+        shell: msys2 {0}
         run: tools/stage "out/${{ matrix.platform }}" "${{ matrix.platform }}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # emit_matrix — emit the GitHub Actions build matrix from a feedstock recipe.
 # Usage: ruby tools/emit_matrix recipe.yml
-# Prints one JSON object: {"include":[{version, platform, runner, shell}, ...]}
+# Prints one JSON object: {"include":[{version, platform, runner}, ...]}
 # One leg per (upstream version × platform) in the recipe. Unknown
 # platforms are a hard error — per-platform handling is a recipe feature,
 # not a hack (docs/conventions.md).
@@ -17,13 +17,6 @@ RUNNERS = {
   'x86_64-windows-ucrt' => 'windows-latest',
 }.freeze
 
-# The GHA shell keyword a leg's steps run under: bash everywhere except
-# windows, where the ucrt64 build needs the msys2 environment set up by
-# msys2/setup-msys2 (the literal 'msys2 {0}' keyword, not a binary).
-SHELLS = {
-  'x86_64-windows-ucrt' => 'msys2 {0}',
-}.freeze
-
 abort "usage: ruby tools/emit_matrix RECIPE" unless ARGV[0]
 recipe = YAML.load_file(ARGV[0])
 
@@ -32,7 +25,7 @@ platforms = recipe['platforms'] or abort "emit_matrix: platforms missing"
 
 legs = platforms.map do |triplet|
   runner = RUNNERS[triplet] or abort "emit_matrix: no runner mapped for platform '#{triplet}'"
-  { version: version, platform: triplet, runner: runner, shell: SHELLS.fetch(triplet, 'bash') }
+  { version: version, platform: triplet, runner: runner }
 end
 
 puts JSON.generate(include: legs)
