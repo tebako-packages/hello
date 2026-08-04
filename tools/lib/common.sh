@@ -19,6 +19,42 @@ asset_infix() {
   esac
 }
 
+# The PE suffix a platform's executables carry on disk (in the staging
+# tree, hence in the image and its manifest): windows-ucrt builds produce
+# hello.exe where the recipe declares the canonical suffix-free path.
+exe_suffix_for() {
+  case "$1" in
+    *-windows-ucrt) printf '%s' .exe ;;
+    *)              : ;;
+  esac
+}
+
+# pack_image PLATFORM TOOLSDIR ROOT IMAGE — pack ROOT as the payload IMAGE
+# with the platform's imaging tool. Unix legs: the libtfs factory mkdwarfs
+# (flag parity with the C++ oracle; --force: the stage repack overwrites
+# the build image — the tfs CLI's built-in replace semantics). windows-ucrt
+# legs: the Rust tfs CLI's in-process dwarfs-t Writer (the shipping
+# implementation — the feedstock never shells to mkdwarfs there). Hard
+# error on an unknown platform — no silent fallback.
+pack_image() {
+  case "$1" in
+    *-windows-ucrt) "$2/tfs.exe" mkimage --format dwarfs "$3" --output "$4" ;;
+    *-linux-gnu|*-macos) "$2/mkdwarfs" -i "$3" -o "$4" --no-progress --set-owner 0 --force ;;
+    *) echo "pack_image: unknown platform triplet '$1'" >&2; return 1 ;;
+  esac
+}
+
+# image_reader PLATFORM OUTDIR — echo the image-reader binary one built
+# leg carries: the factory tebakofs on unix, the staged tfs.exe on
+# windows-ucrt (subcommand parity: info/tree/extract -d).
+image_reader() {
+  case "$1" in
+    *-windows-ucrt)       printf '%s' "$2/tools/tfs.exe" ;;
+    *-linux-gnu|*-macos)  printf '%s' "$2/tools/tebakofs" ;;
+    *) echo "image_reader: unknown platform triplet '$1'" >&2; return 1 ;;
+  esac
+}
+
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" | awk '{print $1}'
@@ -68,4 +104,18 @@ download_tool() {
   fi
   fetch_verified "${base}/${asset}" "$expected" "${destdir}/${tool}"
   chmod +x "${destdir}/${tool}"
+}
+
+# download_tfs_cli DESTDIR REPO RELEASE SHA256
+# Downloads the tfs CLI windows asset (tfs-<version>-windows-ucrt64.exe)
+# from the tamatebako/tebako release as tfs.exe. That release ships no
+# SHA256SUMS asset, so the caller passes the digest pinned in the recipe
+# (tools.windows.sha256) — the pin is the trust anchor.
+download_tfs_cli() {
+  local destdir="$1" repo="$2" release="$3" sha256="$4"
+  local asset="tfs-${release#v}-windows-ucrt64.exe"
+  mkdir -p "$destdir"
+  fetch_verified "https://github.com/${repo}/releases/download/${release}/${asset}" \
+    "$sha256" "${destdir}/tfs.exe"
+  chmod +x "${destdir}/tfs.exe"
 }

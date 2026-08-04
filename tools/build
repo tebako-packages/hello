@@ -5,8 +5,8 @@
 #
 # fetch upstream (sha256-verified) → apply patches/ → configure → make →
 # install into a staging tree → pack the staging tree as a dwarfs/tfs
-# image with the factory mkdwarfs (sha256-verified against the pinned
-# tool release).
+# image with the platform's pinned imager (the factory mkdwarfs on unix,
+# the tebako tfs CLI on windows-ucrt — every download sha256-verified).
 #
 # Hermetic flags: the recipe is the source of truth. Ambient
 # CFLAGS/CPPFLAGS/LDFLAGS & friends from the host (e.g. homebrew LLVM
@@ -16,7 +16,8 @@
 # Outputs (all under out/<platform>/):
 #   payload.tfs   the packed staging tree
 #   root/         the staging tree itself (kept for inspection)
-#   tools/        verified factory tools (mkdwarfs, tebakofs)
+#   tools/        verified factory tools (mkdwarfs+tebakofs, or tfs.exe
+#                 on windows-ucrt)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -111,6 +112,11 @@ if [ "$LINK_MODE" = "dynamic" ] && [ "$RPATH_ORIGIN" = "true" ]; then
   case "$PLATFORM" in
     *-linux-gnu) LDFLAGS="-Wl,-rpath,\$ORIGIN/../lib" ;;
     *-macos)     LDFLAGS="-Wl,-rpath,@loader_path/../lib" ;;
+    # windows has no rpath: the relocatable dynamic tier there is
+    # "third-party static, OS dynamic" (the vcpkg x64-mingw-static shape
+    # the inkscape leg uses) — -static folds libintl/libiconv/libgcc into
+    # hello.exe so the payload needs no non-OS DLLs at run time.
+    *-windows-ucrt) LDFLAGS="-static" ;;
   esac
 fi
 
@@ -120,19 +126,34 @@ make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
 make install DESTDIR="$TOP/$ROOT"
 cd "$TOP"
 
-# every declared executable must exist in the staging tree
+# every declared executable must exist in the staging tree (windows
+# builds produce the .exe form of the canonical declared path)
+EXE_SUFFIX="$(exe_suffix_for "$PLATFORM")"
 N_EXES=$("$HERE/recipe_query" "$RECIPE" provides.executables | ruby -rjson -e 'puts JSON.parse(STDIN.read).length')
 for i in $(seq 0 $((N_EXES - 1))); do
-  p="$("$HERE/recipe_query" "$RECIPE" "provides.executables.$i.path")"
+  p="$("$HERE/recipe_query" "$RECIPE" "provides.executables.$i.path")$EXE_SUFFIX"
   [ -x "$ROOT$p" ] || { echo "build: declared executable missing in staging tree: $p" >&2; exit 1; }
 done
 
 # --- factory tools (sha256-verified) ---------------------------------
-download_tool mkdwarfs "$PLATFORM" "$OUT/tools" "$TOOLS_REPO" "$TOOLS_REL"
-download_tool tebakofs "$PLATFORM" "$OUT/tools" "$TOOLS_REPO" "$TOOLS_REL"
+# windows-ucrt: the Rust tfs CLI from the tebako release pinned in the
+# recipe (the product's in-process dwarfs-t Writer). Elsewhere: the
+# libtfs factory mkdwarfs/tebakofs pair.
+case "$PLATFORM" in
+  *-windows-ucrt)
+    TFS_REPO="$("$HERE/recipe_query" "$RECIPE" tools.windows.repo)"
+    TFS_REL="$("$HERE/recipe_query" "$RECIPE" tools.windows.release)"
+    TFS_SHA="$("$HERE/recipe_query" "$RECIPE" tools.windows.sha256)"
+    download_tfs_cli "$OUT/tools" "$TFS_REPO" "$TFS_REL" "$TFS_SHA"
+    ;;
+  *)
+    download_tool mkdwarfs "$PLATFORM" "$OUT/tools" "$TOOLS_REPO" "$TOOLS_REL"
+    download_tool tebakofs "$PLATFORM" "$OUT/tools" "$TOOLS_REPO" "$TOOLS_REL"
+    ;;
+esac
 
 # --- pack the payload image -------------------------------------------
-"$OUT/tools/mkdwarfs" -i "$ROOT" -o "$OUT/payload.tfs" --no-progress --set-owner 0
+pack_image "$PLATFORM" "$OUT/tools" "$ROOT" "$OUT/payload.tfs"
 
 echo "build: OK  $NAME $VERSION ($PLATFORM)"
 echo "  image:  $OUT/payload.tfs"
