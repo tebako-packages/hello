@@ -42,13 +42,36 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up MSys2 (ucrt64 toolchain)
+        if: matrix.platform == 'x86_64-windows-ucrt'
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2
+        with:
+          msystem: ucrt64
+          path-type: minimal
+          update: true
+          # THE windows toolchain (the same ucrt64 gcc family the ruby
+          # runtime factory uses — never choco gcc) + the msys-side tools
+          # the feedstock scripts call (git apply, tar, curl, make) and
+          # the ucrt64 ruby recipe_query runs on. gettext stays OUT:
+          # configure then disables NLS (the macOS leg's shape) and
+          # hello.exe links only OS DLLs.
+          install: >-
+            git
+            tar
+            curl
+            make
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-ruby
       - name: Build ${{ matrix.version }} (${{ matrix.platform }})
+        shell: ${{ matrix.shell }}
         run: tools/build recipe.yml "${{ matrix.version }}" "${{ matrix.platform }}"
       - name: Boot-smoke
         # Hard rule (docs/conventions.md): the packaged tool's --version
         # runs from the image before any release publishes.
+        shell: ${{ matrix.shell }}
         run: tools/boot_smoke "out/${{ matrix.platform }}"
       - name: Stage artifact
+        shell: ${{ matrix.shell }}
         run: tools/stage "out/${{ matrix.platform }}" "${{ matrix.platform }}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

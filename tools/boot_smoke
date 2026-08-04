@@ -4,19 +4,23 @@
 #   tools/boot_smoke OUT_DIR [RECIPE]
 #
 # OUT_DIR is one build leg's out/<platform> directory (must contain
-# payload.tfs and the verified factory tebakofs in tools/).
+# payload.tfs and the leg's verified reader in tools/).
 #
-# Mode: tebakofs-extract. The libtfs factory releases ship no FUSE
-# mounter (and CI runners have no FUSE on macOS), so the smoke extracts
-# the image with the same verified tool that inspects it and runs the
-# binary natively. That is exactly the dynamic-tier binary the payload
-# will interpose on; the exec shim itself is out of smoke scope.
+# Mode: extract-and-run. The libtfs factory releases ship no FUSE
+# mounter (and CI runners have no FUSE on macOS; windows has no dwarfs
+# fuse driver at all), so the smoke extracts the image with the leg's
+# verified reader (tebakofs on unix, the tfs CLI on windows-ucrt — same
+# info/tree/extract subcommands) and runs the binary natively. That is
+# exactly the dynamic-tier binary the payload will interpose on; the
+# exec shim itself is out of smoke scope.
 #
 # Known limitation worked around below: `tebakofs extract` streams file
 # CONTENT but does not restore permission bits (libtfs tebakofs.cpp
 # extract_file has no chmod; the image itself stores real modes —
 # verified with dwarfsck). The smoke therefore restores the exec bit on
-# the recipe-declared executables after extraction, loudly.
+# the recipe-declared executables after extraction, loudly. The tfs CLI
+# restores modes itself (and windows executability rides the .exe
+# extension, not mode bits), so windows legs skip the chmod.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -25,40 +29,48 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="${1:?usage: tools/boot_smoke OUT_DIR [RECIPE]}"
 RECIPE="${2:-recipe.yml}"
 IMAGE="$OUT/payload.tfs"
-TEBAKOFS="$OUT/tools/tebakofs"
+PLATFORM="${OUT%/}"; PLATFORM="${PLATFORM##*/}"   # out/<platform>
+READER="$(image_reader "$PLATFORM" "$OUT")"
+EXE_SUFFIX="$(exe_suffix_for "$PLATFORM")"
 
-[ -f "$IMAGE" ]   || { echo "boot_smoke: no payload image at $IMAGE" >&2; exit 1; }
-[ -x "$TEBAKOFS" ] || { echo "boot_smoke: no factory tebakofs at $TEBAKOFS" >&2; exit 1; }
+[ -f "$IMAGE" ]  || { echo "boot_smoke: no payload image at $IMAGE" >&2; exit 1; }
+[ -x "$READER" ] || { echo "boot_smoke: no verified image reader at $READER" >&2; exit 1; }
 
 EXE_NAME="$("$HERE/recipe_query" "$RECIPE" provides.executables.0.name)"
 EXE_PATH="$("$HERE/recipe_query" "$RECIPE" provides.executables.0.path)"
 EXE_VER="$("$HERE/recipe_query" "$RECIPE" provides.executables.0.version)"
 
-echo "boot_smoke: mode=tebakofs-extract image=$IMAGE exe=$EXE_PATH@$EXE_VER"
+echo "boot_smoke: mode=extract-and-run reader=$(basename "$READER") image=$IMAGE exe=$EXE_PATH$EXE_SUFFIX@$EXE_VER"
 
 echo "--- image info ---"
-"$TEBAKOFS" info "$IMAGE"
+"$READER" info "$IMAGE"
 echo "--- image tree ---"
-"$TEBAKOFS" tree "$IMAGE"
+"$READER" tree "$IMAGE"
 
-TMP="$(mktemp -d)"
+# The extraction dir stays INSIDE the leg's out/ tree: a relative path
+# works for the msys-native tebakofs AND for tfs.exe (a native windows
+# binary that cannot resolve msys-virtual absolute paths like /tmp/...).
+TMP="$(mktemp -d "$OUT/smoke.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
-"$TEBAKOFS" extract -d "$TMP" "$IMAGE" >/dev/null
+"$READER" extract -d "$TMP" "$IMAGE" >/dev/null
 
 # tebakofs extract does not restore permission bits (see header note);
 # re-mark every recipe-declared executable, then require it to be so.
+# The tfs CLI (windows legs) restores modes itself — nothing to do there.
 N_EXES=$("$HERE/recipe_query" "$RECIPE" provides.executables | ruby -rjson -e 'puts JSON.parse(STDIN.read).length')
 for i in $(seq 0 $((N_EXES - 1))); do
-  p="$("$HERE/recipe_query" "$RECIPE" "provides.executables.$i.path")"
+  p="$("$HERE/recipe_query" "$RECIPE" "provides.executables.$i.path")$EXE_SUFFIX"
   [ -f "$TMP$p" ] || { echo "boot_smoke: FAIL — $p missing from image" >&2; exit 1; }
-  echo "boot_smoke: chmod 0755 extracted $p (exec bit not restored by tebakofs extract)"
-  chmod 0755 "$TMP$p"
+  if [ -z "$EXE_SUFFIX" ]; then
+    echo "boot_smoke: chmod 0755 extracted $p (exec bit not restored by tebakofs extract)"
+    chmod 0755 "$TMP$p"
+  fi
 done
 
-BIN="$TMP$EXE_PATH"
-[ -x "$BIN" ] || { echo "boot_smoke: FAIL — $EXE_PATH not executable in image" >&2; exit 1; }
+BIN="$TMP$EXE_PATH$EXE_SUFFIX"
+[ -x "$BIN" ] || { echo "boot_smoke: FAIL — $EXE_PATH$EXE_SUFFIX not executable in image" >&2; exit 1; }
 
-echo "--- run: $EXE_PATH --version (from extracted image) ---"
+echo "--- run: $EXE_PATH$EXE_SUFFIX --version (from extracted image) ---"
 VER_OUT="$("$BIN" --version 2>&1 | head -1)"
 echo "$VER_OUT"
 case "$VER_OUT" in
@@ -66,7 +78,7 @@ case "$VER_OUT" in
   *) echo "boot_smoke: FAIL — version output does not contain '$EXE_VER'" >&2; exit 1 ;;
 esac
 
-echo "--- run: $EXE_PATH (functional) ---"
+echo "--- run: $EXE_PATH$EXE_SUFFIX (functional) ---"
 RUN_OUT="$("$BIN" 2>&1)"
 echo "$RUN_OUT"
 [ -n "$RUN_OUT" ] || { echo "boot_smoke: FAIL — empty output" >&2; exit 1; }

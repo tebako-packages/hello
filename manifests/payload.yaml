@@ -16,7 +16,11 @@ identity:
   annotations: {}
 provides:
   executables:
-    - {name: "@@NAME@@", path: "/bin/@@NAME@@", version: "@@VERSION@@"}
+    # stage appends the platform's exe suffix to the path (.exe on
+    # windows-ucrt — the image carries the PE name; empty elsewhere).
+    # The path keeps the literal tool name: the name and suffix
+    # placeholders would share an @ at the junction and break the fill.
+    - {name: "@@NAME@@", path: "/bin/hello@@EXE_SUFFIX@@", version: "@@VERSION@@"}
   libraries: []
   platforms: @@PLATFORMS@@
   capabilities: {exec: true, read: true}

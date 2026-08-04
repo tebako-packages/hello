@@ -26,6 +26,7 @@ NAME="$("$HERE/recipe_query" "$RECIPE" name)"
 VERSION="$("$HERE/recipe_query" "$RECIPE" upstream.version)"
 UP_SHA="$("$HERE/recipe_query" "$RECIPE" upstream.sha256)"
 PLATFORMS="$("$HERE/recipe_query" "$RECIPE" platforms)"   # JSON == YAML flow
+EXE_SUFFIX="$(exe_suffix_for "$PLATFORM")"   # the windows image carries /bin/<name>.exe
 CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 FEEDSTOCK_SHA="$(git rev-parse --verify -q HEAD 2>/dev/null || true)"
 [ -n "$FEEDSTOCK_SHA" ] || FEEDSTOCK_SHA="worktree-uncommitted"
@@ -37,6 +38,7 @@ fill_manifest() {  # $1 = blob_sha256 to inscribe
       -e "s/@@UPSTREAM_SHA256@@/$UP_SHA/g" \
       -e "s/@@FEEDSTOCK_SHA@@/$FEEDSTOCK_SHA/g" \
       -e "s/@@BLOB_SHA256@@/$1/g" \
+      -e "s/@@EXE_SUFFIX@@/$EXE_SUFFIX/g" \
       -e "s/@@PLATFORMS@@/$PLATFORMS/g" \
       manifests/payload.yaml
 }
@@ -60,8 +62,8 @@ ZEROS="$(printf '0%.0s' $(seq 64))"
 fill_manifest "$ZEROS" > "$ROOT/__tpkg__/manifest.yaml"
 check_filled "$ROOT/__tpkg__/manifest.yaml"
 
-# repack with the manifest inside (same factory tool + flags as tools/build)
-"$OUT/tools/mkdwarfs" -i "$ROOT" -o "$IMAGE" --no-progress --set-owner 0
+# repack with the manifest inside (same imager + flags as tools/build)
+pack_image "$PLATFORM" "$OUT/tools" "$ROOT" "$IMAGE"
 
 BLOB_SHA="$(sha256_of "$IMAGE")"
 fill_manifest "$BLOB_SHA" > "$MAN"

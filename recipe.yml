@@ -21,15 +21,25 @@ build:
 tools:
   repo: "tamatebako/libtfs"
   release: "v0.13.0"
+  # windows-ucrt legs: the Rust tfs CLI is the imager (the product's
+  # in-process dwarfs-t Writer — never the mkdwarfs CLI). The tebako
+  # v0.1.1 release ships no SHA256SUMS asset, so the asset digest is
+  # pinned here — the same trust-anchor role as upstream.sha256.
+  windows:
+    repo: "tamatebako/tebako"
+    release: "v0.1.1"
+    sha256: "82ed22135321449c81530e1fabeba73555195ea411e0d9cca4458a23fe5ad01c"
 
 platforms:
   - x86_64-linux-gnu
   # - aarch64-linux-gnu    # optional per feedstock brief; enable when proven
   - aarch64-macos
   - x86_64-macos
+  - x86_64-windows-ucrt
 
 provides:
   executables:
+    # the windows image carries /bin/hello.exe (stage fills the suffix)
     - {name: "hello", path: "/bin/hello", version: "2.12"}
   libraries: []
 
