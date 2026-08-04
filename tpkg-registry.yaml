@@ -18,4 +18,7 @@ payloads:
           x86_64-linux-gnu:
             artifact: hello-2.12-x86_64-linux-gnu.tfs
             sha256: "3f415369565cfbdfbe947d18d073d502d5570c623b71055cd0f7e0062df3d81b"
+          x86_64-windows-ucrt:
+            artifact: hello-2.12-x86_64-windows-ucrt.tfs
+            sha256: "992ea6f2ef773bf9e5118f8603ff04fc4a164958675e86332697ab1ec0697cc8"
         release: {ref: tfs:github:tebako-packages/hello:2.12}
