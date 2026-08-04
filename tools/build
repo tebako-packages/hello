@@ -112,6 +112,11 @@ if [ "$LINK_MODE" = "dynamic" ] && [ "$RPATH_ORIGIN" = "true" ]; then
   case "$PLATFORM" in
     *-linux-gnu) LDFLAGS="-Wl,-rpath,\$ORIGIN/../lib" ;;
     *-macos)     LDFLAGS="-Wl,-rpath,@loader_path/../lib" ;;
+    # windows has no rpath: the relocatable dynamic tier there is
+    # "third-party static, OS dynamic" (the vcpkg x64-mingw-static shape
+    # the inkscape leg uses) — -static folds libintl/libiconv/libgcc into
+    # hello.exe so the payload needs no non-OS DLLs at run time.
+    *-windows-ucrt) LDFLAGS="-static" ;;
   esac
 fi
 

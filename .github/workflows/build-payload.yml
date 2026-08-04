@@ -52,9 +52,9 @@ jobs:
           # THE windows toolchain (the same ucrt64 gcc family the ruby
           # runtime factory uses — never choco gcc) + the msys-side tools
           # the feedstock scripts call (git apply, tar, curl, make) and
-          # the ucrt64 ruby recipe_query runs on. gettext stays OUT:
-          # configure then disables NLS (the macOS leg's shape) and
-          # hello.exe links only OS DLLs.
+          # the ucrt64 ruby recipe_query runs on. configure finds the
+          # toolchain's libintl/libiconv (NLS on); tools/build links the
+          # windows leg -static so hello.exe needs no non-OS DLLs.
           install: >-
             git
             tar

@@ -7,7 +7,7 @@ index 1597d39..0413d9d 100644
  SUBDIRS = po
  hello_SOURCES = src/hello.c src/system.h
 -hello_LDADD = $(LIBINTL) $(top_builddir)/lib/lib$(PACKAGE).a
-+hello_LDADD = $(LIBINTL) $(LIBICONV) $(top_builddir)/lib/lib$(PACKAGE).a
++hello_LDADD = $(top_builddir)/lib/lib$(PACKAGE).a $(LIBINTL) $(LIBICONV)
  CLEANFILES = $(am__append_2) lib/configmake.h lib/configmake.h-t
  MAINTAINERCLEANFILES = lib/iconv_open-aix.h lib/iconv_open-hpux.h \
  	lib/iconv_open-irix.h lib/iconv_open-osf.h \
