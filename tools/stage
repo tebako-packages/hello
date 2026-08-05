@@ -80,11 +80,13 @@ READER="$(image_reader "$PLATFORM" "$OUT")"
 EMBEDDED="$(MSYS2_ARG_CONV_EXCL='*' "$READER" cat "$IMAGE" /__tpkg__/manifest.yaml)" || {
   echo "stage: read-back FAILED — no /__tpkg__/manifest.yaml in $IMAGE" >&2; exit 1; }
 ENTRY_PATHS="$(printf '%s' "$EMBEDDED" | ruby --disable-gems -ryaml -e '
+  $stdout.binmode   # ucrt64 ruby text mode would emit \r\n (breaks read -r)
   m = YAML.load(STDIN.read)
   es = (m.dig("provides", "executables") || []) + (m.dig("provides", "entrypoints") || [])
   es.each { |e| puts e["path"] }')" || {
   echo "stage: read-back FAILED — embedded manifest is not valid YAML" >&2; exit 1; }
 while IFS= read -r p; do
+  p="${p%$'\r'}"   # belt-and-braces with the binmode above
   [ -n "$p" ] || continue
   MSYS2_ARG_CONV_EXCL='*' "$READER" stat "$IMAGE" "$p" >/dev/null || {
     echo "stage: read-back FAILED — declared entrypoint $p missing from $IMAGE" >&2; exit 1; }
