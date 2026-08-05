@@ -81,9 +81,11 @@ jobs:
           }
 
           # sysdylib  simulates rnp-rs  (explicit dylib=stdc++)
-          # sysstatic simulates a FIXED dwarfs-t-sys (static= chain)
+          # sysstatic simulates a FIXED dwarfs-t-sys (static= chain + the
+          # link-search the eager static= resolution needs: the dir gcc
+          # itself reports for libstdc++.a).
           make_sys sysdylib  'println!("cargo:rustc-link-lib=dylib=stdc++"); println!("cargo:rustc-link-lib=dylib=pthread");'
-          make_sys sysstatic 'println!("cargo:rustc-link-lib=static=stdc++"); println!("cargo:rustc-link-lib=static=gcc"); println!("cargo:rustc-link-lib=static=gcc_eh"); println!("cargo:rustc-link-lib=static=winpthread");'
+          make_sys sysstatic 'let out = std::process::Command::new("gcc").arg("-print-file-name=libstdc++.a").output().unwrap(); let p = String::from_utf8(out.stdout).unwrap(); let dir = std::path::Path::new(p.trim()).parent().unwrap().to_path_buf(); println!("cargo:rustc-link-search=native={}", dir.display()); println!("cargo:rustc-link-lib=static=stdc++"); println!("cargo:rustc-link-lib=static=gcc"); println!("cargo:rustc-link-lib=static=gcc_eh"); println!("cargo:rustc-link-lib=static=winpthread");'
 
           # The consumer bin, dep order injected per-variant.
           make_bin() {
