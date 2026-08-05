@@ -1,14 +1,17 @@
-# SCRATCH — linkage experiment for the windows-ucrt64 exit-127 root cause.
-# NOT part of the dogfood; deleted before the branch's PR. See
-# dogfood-windows.yml for the permanent workflow.
+# SCRATCH — linkage experiment ROUND 2 for the windows-ucrt64 exit-127
+# root cause. Deleted before the branch's PR.
 #
-# Question: which link configuration makes a windows-gnu exe that pulls
-# C++ objects (std::filesystem, std::thread, pthread_rwlock) import ONLY
-# inbox DLLs on stock Windows? The published tebako 0.1.1 exes import
-# libstdc++-6.dll + libwinpthread-1.dll despite
-# RUSTFLAGS="-C link-arg=-static-libgcc -C link-arg=-static-libstdc++"
-# and die before main (127) anywhere ucrt64/bin is not on PATH.
-name: scratch-link-experiment
+# Round 1 (run 30976501418) proved:
+#   v1 current RUSTFLAGS (-static-libgcc/-static-libstdc++ as trailing
+#      link-args) + plain build.rs emissions  -> libstdc++-6.dll +
+#      libwinpthread-1.dll imported, RUN-FAIL rc=127 on stock PATH.
+#   v2 build.rs static=stdc++/gcc/gcc_eh/winpthread -> clean, RUN-OK.
+#   v3 trailing -C link-arg=-static            -> still broken (position).
+#   v5 static=pthread                          -> clean too.
+# Round 1 used ONE -sys crate. The real tebako.exe links TWO C++ -sys
+# stacks: rnp-rs (external; emits dylib=stdc++ explicitly) and
+# dwarfs-t-sys (ours). Round 2 answers what that combination needs.
+name: scratch-link-experiment-2
 on:
   push:
     branches: [ci/dogfood-windows]
@@ -30,11 +33,12 @@ jobs:
         run: |
           set -euxo pipefail
           export PATH="/c/Users/runneradmin/.cargo/bin:$PATH"
-          ROOT="$RUNNER_TEMP/linkexp"
+          ROOT="$RUNNER_TEMP/linkexp2"
           rm -rf "$ROOT"; mkdir -p "$ROOT"; cd "$ROOT"
 
-          make_variant() {
-            local name="$1" emissions="$2"
+          # A tiny C++ -sys crate factory: $1=crate name, $2=link-lib emission line
+          make_sys() {
+            local name="$1" emission="$2"
             mkdir -p "$name/src" "$name/native"
             printf '%s\n' \
               '[package]' \
@@ -43,7 +47,11 @@ jobs:
               'edition = "2021"' \
               '' \
               '[build-dependencies]' \
-              'cc = "1"' > "$name/Cargo.toml"
+              'cc = "1"' \
+              '' \
+              '[lib]' \
+              "name = \"$name\"" \
+              'path = "src/lib.rs"' > "$name/Cargo.toml"
             cat > "$name/native/native.cc" <<'NATIVE_EOF'
           #include <filesystem>
           #include <thread>
@@ -63,51 +71,101 @@ jobs:
             {
               echo 'fn main() {'
               echo '    cc::Build::new().cpp(true).file("native/native.cc").compile("native");'
-              printf '    %s\n' $emissions
+              echo "    $emission"
               echo '}'
             } > "$name/build.rs"
-            cat > "$name/src/main.rs" <<'MAIN_EOF'
+            cat > "$name/src/lib.rs" <<'LIB_EOF'
           unsafe extern "C" { fn native_answer() -> i32; }
-          fn main() { println!("answer={}", unsafe { native_answer() }); }
+          pub fn answer() -> i32 { unsafe { native_answer() } }
+          LIB_EOF
+          }
+
+          # sysdylib  simulates rnp-rs  (explicit dylib=stdc++)
+          # sysstatic simulates a FIXED dwarfs-t-sys (static= chain)
+          make_sys sysdylib  'println!("cargo:rustc-link-lib=dylib=stdc++"); println!("cargo:rustc-link-lib=dylib=pthread");'
+          make_sys sysstatic 'println!("cargo:rustc-link-lib=static=stdc++"); println!("cargo:rustc-link-lib=static=gcc"); println!("cargo:rustc-link-lib=static=gcc_eh"); println!("cargo:rustc-link-lib=static=winpthread");'
+
+          # The consumer bin, dep order injected per-variant.
+          make_bin() {
+            local name="$1" first="$2" second="$3"
+            mkdir -p "$name/src"
+            printf '%s\n' \
+              '[package]' \
+              "name = \"$name\"" \
+              'version = "0.0.0"' \
+              'edition = "2021"' \
+              '' \
+              '[dependencies]' \
+              "$first = { path = \"../$first\" }" \
+              "$second = { path = \"../$second\" }" > "$name/Cargo.toml"
+            cat > "$name/src/main.rs" <<MAIN_EOF
+          fn main() { println!("sum={}", ${first}::answer() + ${second}::answer()); }
           MAIN_EOF
           }
 
-          make_variant plain 'println!("cargo:rustc-link-lib=stdc++"); println!("cargo:rustc-link-lib=pthread");'
-          make_variant statickind 'println!("cargo:rustc-link-lib=static=stdc++"); println!("cargo:rustc-link-lib=static=gcc"); println!("cargo:rustc-link-lib=static=gcc_eh"); println!("cargo:rustc-link-lib=static=winpthread");'
+          # rnp-rs precedes dwarfs-t-sys in tebako-cli's dependency order
+          # (tebako-signer is listed early, dwarfs-t late): simulate that.
+          make_bin bin_dylib_first  sysdylib sysstatic
+          make_bin bin_static_first sysstatic sysdylib
 
-          # v1: the CURRENT release flags + plain emissions (expect: repro of the bug)
-          (cd plain && RUSTFLAGS="-C link-arg=-static-libgcc -C link-arg=-static-libstdc++ -C link-arg=-lmsvcrt" \
-            cargo build --release --target x86_64-pc-windows-gnu 2>&1 | tail -3)
-          cp plain/target/x86_64-pc-windows-gnu/release/plain.exe /tmp/v1-current-flags.exe
+          FLAGS="-C link-arg=-static-libgcc -C link-arg=-static-libstdc++ -C link-arg=-lmsvcrt"
+          for b in bin_dylib_first bin_static_first; do
+            (cd $b && RUSTFLAGS="$FLAGS" cargo build --release --target x86_64-pc-windows-gnu 2>&1 | tail -2)
+            cp $b/target/x86_64-pc-windows-gnu/release/$b.exe /tmp/$b.exe
+          done
 
-          # v2: static= emissions (expect: clean imports)
-          (cd statickind && RUSTFLAGS="-C link-arg=-static-libgcc -C link-arg=-lmsvcrt" \
-            cargo build --release --target x86_64-pc-windows-gnu 2>&1 | tail -3)
-          cp statickind/target/x86_64-pc-windows-gnu/release/statickind.exe /tmp/v2-static-kind.exe
+          # crt-static variant: same worst-case order, +crt-static instead.
+          (cd bin_dylib_first && cargo clean -q && \
+            RUSTFLAGS="-C target-feature=+crt-static -C link-arg=-static-libgcc -C link-arg=-lmsvcrt" \
+            cargo build --release --target x86_64-pc-windows-gnu 2>&1 | tail -2)
+          cp bin_dylib_first/target/x86_64-pc-windows-gnu/release/bin_dylib_first.exe /tmp/bin_crtstatic.exe
 
-          # v3: plain emissions + trailing -static link-arg
-          (cd plain && cargo clean -q && RUSTFLAGS="-C link-arg=-static -C link-arg=-lmsvcrt" \
-            cargo build --release --target x86_64-pc-windows-gnu 2>&1 | tail -3)
-          cp plain/target/x86_64-pc-windows-gnu/release/plain.exe /tmp/v3-trailing-static.exe
+          # Linker-wrapper variant: rewrite the mingw runtime libs to their
+          # exact static archives (-l: form is immune to -B modes). Cargo
+          # spawns the linker via CreateProcess, so the wrapper is a real
+          # exe (compiled here with the ucrt64 gcc). Also dumps the raw
+          # linker argv for inspection.
+          cat > /tmp/gcc-wrap.c <<'WRAP_EOF'
+          #include <stdio.h>
+          #include <string.h>
+          #include <unistd.h>
+          #include <process.h>
+          #ifndef LOG_PATH
+          #define LOG_PATH "linker-argv.txt"
+          #endif
+          int main(int argc, char **argv) {
+            FILE *f = fopen(LOG_PATH, "w");
+            static char *out[4096];
+            int n = 0;
+            out[n++] = (char *)"gcc";
+            for (int i = 1; i < argc; i++) {
+              const char *a = argv[i];
+              if (f) fprintf(f, "%s\n", a);
+              if (!strcmp(a, "-lstdc++")) out[n++] = (char *)"-l:libstdc++.a";
+              else if (!strcmp(a, "-lpthread") || !strcmp(a, "-lwinpthread")) out[n++] = (char *)"-l:libwinpthread.a";
+              else out[n++] = argv[i];
+            }
+            if (f) fclose(f);
+            out[n] = 0;
+            execvp("gcc", out);
+            return 127;
+          }
+          WRAP_EOF
+          LOGARGV="$(cygpath -m "$RUNNER_TEMP")/linker-argv.txt"
+          gcc -O2 -DLOG_PATH="\"$LOGARGV\"" -o /tmp/gcc-wrap.exe /tmp/gcc-wrap.c
+          WRAP_EXE="$(cygpath -w "$(cygpath -u "$RUNNER_TEMP")/gcc-wrap.exe" 2>/dev/null || echo "$RUNNER_TEMP/gcc-wrap.exe")"
+          cp /tmp/gcc-wrap.exe "$WRAP_EXE"
+          (cd bin_dylib_first && cargo clean -q && \
+            RUSTFLAGS="$FLAGS" \
+            CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$WRAP_EXE" \
+            cargo build --release --target x86_64-pc-windows-gnu 2>&1 | tail -2)
+          cp bin_dylib_first/target/x86_64-pc-windows-gnu/release/bin_dylib_first.exe /tmp/bin_wrapped.exe
 
-          # v4: plain emissions, no flags at all
-          (cd plain && cargo clean -q && \
-            cargo build --release --target x86_64-pc-windows-gnu 2>&1 | tail -3)
-          cp plain/target/x86_64-pc-windows-gnu/release/plain.exe /tmp/v4-no-flags.exe
-
-          # v5: static=pthread (does a STATIC libpthread.a exist, or is it the import lib?)
-          make_variant staticpthread 'println!("cargo:rustc-link-lib=static=stdc++"); println!("cargo:rustc-link-lib=static=pthread");'
-          (cd staticpthread && RUSTFLAGS="-C link-arg=-static-libgcc -C link-arg=-lmsvcrt" \
-            cargo build --release --target x86_64-pc-windows-gnu 2>&1 | tail -3) || true
-          cp staticpthread/target/x86_64-pc-windows-gnu/release/staticpthread.exe /tmp/v5-static-pthread.exe 2>/dev/null || true
-
-          for exe in /tmp/v*.exe; do
+          for exe in /tmp/bin_*.exe; do
             echo "=== imports: $exe ==="
             objdump -p "$exe" | grep "DLL Name" | sort -u || true
-          done
-
-          echo "=== stock-windows simulation (PATH without ucrt64) ==="
-          for exe in /tmp/v*.exe; do
-            echo "--- $exe"
+            echo "--- stock-PATH run:"
             PATH="/c/Windows/System32:/c/Windows" "$exe" && echo RUN-OK || echo "RUN-FAIL rc=$?"
           done
+          echo "=== raw linker argv (wrapped link) ==="
+          cat "$LOGARGV"
