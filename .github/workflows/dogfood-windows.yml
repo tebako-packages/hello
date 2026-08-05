@@ -11,8 +11,13 @@ name: dogfood-windows
 #
 # workflow_dispatch only: this is a dogfood of the published artifacts,
 # not a gate on this repo's own builds (build-payload.yml is that).
+# (The push trigger below exists ONLY while this workflow is being
+# iterated on its branch — a workflow is dispatchable via the API only
+# once it exists on the default branch. It is removed before merge.)
 on:
   workflow_dispatch:
+  push:
+    branches: [ci/dogfood-windows]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
