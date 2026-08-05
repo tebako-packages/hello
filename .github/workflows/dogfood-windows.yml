@@ -1,21 +1,38 @@
 name: dogfood-windows
-# The permanent windows dogfood for the smallest fixture (spec 14's tiered
-# e2e doctrine): install the PUBLISHED hello payload with the PUBLISHED
-# tebako CLI + shim on a real windows runner and run it end-to-end —
-# the exact persona-A path a windows user walks. Nothing here builds
-# anything; every artifact is a released, checksummed binary.
+# The permanent windows dogfood for the smallest fixture (the tiered-e2e
+# doctrine): install the PUBLISHED hello payload with a tebako CLI + shim
+# on a real windows runner and run it end-to-end — the exact persona-A
+# path a windows user walks. Nothing here builds the payload; the payload
+# is always the released, sha256-pinned artifact.
 #
 #   tebako add-registry tfs:github:tebako-packages/hello
 #   tebako install hello
 #   ~/.tebako/shims/hello.exe            -> "Hello, world!"
 #
-# workflow_dispatch only: this is a dogfood of the published artifacts,
-# not a gate on this repo's own builds (build-payload.yml is that).
-# (The push trigger below exists ONLY while this workflow is being
-# iterated on its branch — a workflow is dispatchable via the API only
-# once it exists on the default branch. It is removed before merge.)
+# The CLI under test is, by default, the published tamatebako/tebako
+# release (sha256-pinned below — that release ships no SHA256SUMS asset).
+# With the `tebako_ref` input the CLI+shim are instead BUILT from that
+# tamatebako/tebako ref through the repo's own ci/windows-gnu-release.sh
+# (the release leg's own script, import gate included) — the pre-release
+# verification loop for product PRs.
+#
+# workflow_dispatch only: this is a dogfood of published artifacts, not a
+# gate on this repo's own builds (build-payload.yml is that). The push
+# trigger below exists ONLY while this workflow is being iterated on its
+# branch (a workflow is dispatchable via the API only once it exists on
+# the default branch); it is removed before merge.
 on:
   workflow_dispatch:
+    inputs:
+      tebako_version:
+        description: 'Published tamatebako/tebako release to dogfood (ignored when tebako_ref is set)'
+        default: '0.1.1'
+      tebako_ref:
+        description: 'tamatebako/tebako ref to BUILD the CLI+shim from instead of downloading a release'
+        # ITERATION ONLY: the fix branch under test (tamatebako/tebako#367).
+        # Revert to '' before merge so the permanent dogfood defaults to the
+        # published release.
+        default: 'fix/windows-exec-chain'
   push:
     branches: [ci/dogfood-windows]
 
@@ -27,14 +44,14 @@ permissions:
   contents: read
 
 env:
-  # The published CLI under test (tamatebako/tebako releases). The release
-  # ships no SHA256SUMS asset, so the expected digests are pinned here
-  # (computed from the published assets at workflow-authoring time).
-  TEBAKO_VERSION: "0.1.1"
+  # Expected digests of the published v0.1.1 assets (computed from the
+  # published assets at authoring time; that release ships no SHA256SUMS).
   TEBAKO_CLI_SHA256: "9cd4f2e0922acb776797a284f2f3ea1448f93c228c92e84b0f1f7a322857c2b8"
   TEBAKO_SHIM_SHA256: "ab5af866718ae0f6ec280092471bc397f640a69aeb03cba7cbc3bd1a1ae1bbbc"
   # The CLI's own log grammar (crates/tebako-log): TEBAKO_DEBUG=<level>.
   TEBAKO_DEBUG: "debug"
+  # The product CI's vcpkg pin (tamatebako/tebako .github/workflows env).
+  VCPKG_COMMIT: f14401ca0f2754347c3864da7488a9b955b4e47a
 
 jobs:
   dogfood:
@@ -43,8 +60,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # ---- source the CLI: published release (default) -------------------
       - name: Download tebako + tebako-shim (windows-ucrt64, pinned sha256)
+        if: ${{ inputs.tebako_ref == '' }}
         shell: bash
+        env:
+          TEBAKO_VERSION: ${{ inputs.tebako_version }}
         run: |
           set -euo pipefail
           BIN="$RUNNER_TEMP/tebako-bin"
@@ -58,11 +79,109 @@ jobs:
           echo "$BIN" >> "$GITHUB_PATH"
           file tebako.exe tebako-shim.exe || true
 
+      # ---- source the CLI: build from a tamatebako/tebako ref ------------
+      # The product release leg's own provisioning + script (so the dogfood
+      # also exercises the import gate). The path layout mirrors the product
+      # CI: tebako-rs/ with the dwarfs-rs/ sibling path dep next to it.
+      - name: Checkout tamatebako/tebako @ ${{ inputs.tebako_ref }}
+        if: ${{ inputs.tebako_ref != '' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: tamatebako/tebako
+          ref: ${{ inputs.tebako_ref }}
+          path: tebako-rs
+          submodules: recursive
+
+      - name: Checkout dwarfs-rs (sibling path dep)
+        if: ${{ inputs.tebako_ref != '' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: tamatebako/dwarfs-rs
+          path: dwarfs-rs
+          submodules: recursive
+
+      - name: Restore the vcpkg baseline (dwarfs-t is the single writer)
+        if: ${{ inputs.tebako_ref != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bash dwarfs-rs/dwarfs-t/ci/vcpkg-baseline-restore.sh \
+            dwarfs-rs/dwarfs-t x64-mingw-static \
+            || echo "baseline miss — ports build normally"
+
+      - name: Set up MSys2 (ucrt64 toolchain + cmake/ninja)
+        if: ${{ inputs.tebako_ref != '' }}
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2
+        with:
+          msystem: ucrt64
+          path-type: minimal
+          install: mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-make
+
+      - name: Rust toolchain (windows-gnu target)
+        if: ${{ inputs.tebako_ref != '' }}
+        uses: dtolnay/rust-toolchain@e43eeffd51aefeea929f4ea14e09fd077153e788 # 1.94.1
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Set up vcpkg
+        if: ${{ inputs.tebako_ref != '' }}
+        uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11.6
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
+          vcpkgDirectory: ${{ github.workspace }}/.vcpkg-root
+
+      - name: Cache vcpkg package archives
+        if: ${{ inputs.tebako_ref != '' }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/AppData/Local/vcpkg/archives
+          key: vcpkg-archives-dogfood-${{ inputs.tebako_ref }}-${{ hashFiles('dwarfs-rs/dwarfs-t/vcpkg.json') }}
+          restore-keys: vcpkg-archives-dogfood-
+
+      - name: Cache the cargo target dir
+        if: ${{ inputs.tebako_ref != '' }}
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+        with:
+          workspaces: tebako-rs
+          key: dogfood-${{ inputs.tebako_ref }}
+
+      - name: Build the CLI + shim through the product's release script
+        if: ${{ inputs.tebako_ref != '' }}
+        working-directory: tebako-rs
+        shell: bash
+        env:
+          DWARFS_RS_VCPKG_ROOT: ${{ github.workspace }}/.vcpkg-root
+          VCPKG_ROOT: ${{ github.workspace }}/.vcpkg-root
+          VERSION: 0.0.0-dogfood
+          PLATFORM: windows-ucrt64
+        run: |
+          set -euo pipefail
+          # Builds the five binaries, stages them, and runs the release
+          # leg's own import gate over out/*.exe.
+          bash ci/windows-gnu-release.sh
+          BIN="$RUNNER_TEMP/tebako-bin"
+          mkdir -p "$BIN"
+          cp "out/tebako-${VERSION}-${PLATFORM}.exe" "$BIN/tebako.exe"
+          cp "out/tebako-shim-${VERSION}-${PLATFORM}.exe" "$BIN/tebako-shim.exe"
+          echo "$BIN" >> "$GITHUB_PATH"
+
+      - name: Dump vcpkg build logs on failure
+        if: ${{ failure() && inputs.tebako_ref != '' }}
+        shell: bash
+        run: |
+          for f in .vcpkg-root/buildtrees/*/build-x64-mingw-static-*-err.log .vcpkg-root/buildtrees/*/install-x64-mingw-static-*-err.log; do
+            [ -f "$f" ] || continue
+            echo "=== $f ==="
+            tail -200 "$f"
+          done
+
+      # ---- the dogfood proper ---------------------------------------------
       - name: CLI sanity
         shell: bash
         run: |
           set -x
-          tebako --version || true
+          tebako --version
           tebako --help || true
 
       - name: tebako add-registry tfs:github:tebako-packages/hello
