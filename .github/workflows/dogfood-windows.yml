@@ -1,0 +1,123 @@
+name: dogfood-windows
+# The permanent windows dogfood for the smallest fixture (spec 14's tiered
+# e2e doctrine): install the PUBLISHED hello payload with the PUBLISHED
+# tebako CLI + shim on a real windows runner and run it end-to-end —
+# the exact persona-A path a windows user walks. Nothing here builds
+# anything; every artifact is a released, checksummed binary.
+#
+#   tebako add-registry tfs:github:tebako-packages/hello
+#   tebako install hello
+#   ~/.tebako/shims/hello.exe            -> "Hello, world!"
+#
+# workflow_dispatch only: this is a dogfood of the published artifacts,
+# not a gate on this repo's own builds (build-payload.yml is that).
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # The published CLI under test (tamatebako/tebako releases). The release
+  # ships no SHA256SUMS asset, so the expected digests are pinned here
+  # (computed from the published assets at workflow-authoring time).
+  TEBAKO_VERSION: "0.1.1"
+  TEBAKO_CLI_SHA256: "9cd4f2e0922acb776797a284f2f3ea1448f93c228c92e84b0f1f7a322857c2b8"
+  TEBAKO_SHIM_SHA256: "ab5af866718ae0f6ec280092471bc397f640a69aeb03cba7cbc3bd1a1ae1bbbc"
+  # The CLI's own log grammar (crates/tebako-log): TEBAKO_DEBUG=<level>.
+  TEBAKO_DEBUG: "debug"
+
+jobs:
+  dogfood:
+    name: install + run hello (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download tebako + tebako-shim (windows-ucrt64, pinned sha256)
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="$RUNNER_TEMP/tebako-bin"
+          mkdir -p "$BIN"
+          cd "$BIN"
+          BASE="https://github.com/tamatebako/tebako/releases/download/v${TEBAKO_VERSION}"
+          curl -sSfL -o tebako.exe      "${BASE}/tebako-${TEBAKO_VERSION}-windows-ucrt64.exe"
+          curl -sSfL -o tebako-shim.exe "${BASE}/tebako-shim-${TEBAKO_VERSION}-windows-ucrt64.exe"
+          echo "${TEBAKO_CLI_SHA256}  tebako.exe"      | sha256sum -c -
+          echo "${TEBAKO_SHIM_SHA256}  tebako-shim.exe" | sha256sum -c -
+          echo "$BIN" >> "$GITHUB_PATH"
+          file tebako.exe tebako-shim.exe || true
+
+      - name: CLI sanity
+        shell: bash
+        run: |
+          set -x
+          tebako --version || true
+          tebako --help || true
+
+      - name: tebako add-registry tfs:github:tebako-packages/hello
+        shell: bash
+        run: |
+          set -x
+          tebako add-registry tfs:github:tebako-packages/hello
+          tebako list-registries
+
+      - name: tebako install hello
+        shell: bash
+        run: |
+          set -x
+          tebako install hello
+
+      - name: Run hello via the shim (the assertion that matters)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la "$HOME/.tebako/shims/"
+          OUT="$("$HOME/.tebako/shims/hello.exe" 2>&1)"
+          echo "$OUT"
+          case "$OUT" in
+            *"Hello, world!"*) echo "DOGFOOD PASS: shim ran the published payload" ;;
+            *) echo "DOGFOOD FAIL: expected 'Hello, world!' in shim output" >&2; exit 1 ;;
+          esac
+
+      - name: Run hello --version via the shim
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$("$HOME/.tebako/shims/hello.exe" --version 2>&1 | head -1)"
+          echo "$OUT"
+          case "$OUT" in
+            *"2.12"*) echo "DOGFOOD PASS: --version names 2.12" ;;
+            *) echo "DOGFOOD FAIL: expected 2.12 in --version output" >&2; exit 1 ;;
+          esac
+
+      - name: Probe `tebako run` (package-file surface; expected to refuse a nickname)
+        shell: bash
+        run: |
+          set +e
+          tebako run hello
+          rc=$?
+          echo "tebako run hello -> exit $rc (documented probe; not the install+shim path)"
+          exit 0
+
+      - name: Forensics (always)
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          echo "=== ~/.tebako tree ==="
+          find "$HOME/.tebako" -maxdepth 4 | sort
+          echo "=== config.yaml ==="
+          cat "$HOME/.tebako/config.yaml" 2>/dev/null
+          echo "=== journal.log ==="
+          cat "$HOME/.tebako/journal.log" 2>/dev/null
+          echo "=== shims ==="
+          ls -la "$HOME/.tebako/shims/" 2>/dev/null
+          echo "=== payloads ==="
+          ls -la "$HOME/.tebako/payloads/hello/" 2>/dev/null
+          exit 0
