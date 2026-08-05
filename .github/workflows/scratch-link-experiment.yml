@@ -110,14 +110,14 @@ jobs:
 
           FLAGS="-C link-arg=-static-libgcc -C link-arg=-static-libstdc++ -C link-arg=-lmsvcrt"
           for b in bin_dylib_first bin_static_first; do
-            (cd $b && RUSTFLAGS="$FLAGS" cargo build --release --target x86_64-pc-windows-gnu 2>2>&1 | tail -2)1 | tail -30)
+            (cd $b && RUSTFLAGS="$FLAGS" cargo build --release --target x86_64-pc-windows-gnu 2>&1 | tail -30)
             cp $b/target/x86_64-pc-windows-gnu/release/$b.exe /tmp/$b.exe
           done
 
           # crt-static variant: same worst-case order, +crt-static instead.
           (cd bin_dylib_first && cargo clean -q && \
             RUSTFLAGS="-C target-feature=+crt-static -C link-arg=-static-libgcc -C link-arg=-lmsvcrt" \
-            cargo build --release --target x86_64-pc-windows-gnu 2>2>&1 | tail -2)1 | tail -30)
+            cargo build --release --target x86_64-pc-windows-gnu 2>&1 | tail -30)
           cp bin_dylib_first/target/x86_64-pc-windows-gnu/release/bin_dylib_first.exe /tmp/bin_crtstatic.exe
 
           # Linker-wrapper variant: rewrite the mingw runtime libs to their
@@ -158,7 +158,7 @@ jobs:
           (cd bin_dylib_first && cargo clean -q && \
             RUSTFLAGS="$FLAGS" \
             CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$WRAP_EXE" \
-            cargo build --release --target x86_64-pc-windows-gnu 2>2>&1 | tail -2)1 | tail -30)
+            cargo build --release --target x86_64-pc-windows-gnu 2>&1 | tail -30)
           cp bin_dylib_first/target/x86_64-pc-windows-gnu/release/bin_dylib_first.exe /tmp/bin_wrapped.exe
 
           for exe in /tmp/bin_*.exe; do
