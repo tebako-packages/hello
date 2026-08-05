@@ -52,6 +52,13 @@ env:
   TEBAKO_DEBUG: "debug"
   # The product CI's vcpkg pin (tamatebako/tebako .github/workflows env).
   VCPKG_COMMIT: f14401ca0f2754347c3864da7488a9b955b4e47a
+  # ITERATION ONLY (this branch's push trigger): the inputs context is
+  # EMPTY on push events (defaults apply to workflow_dispatch only), so
+  # the effective ref/version carry their fallbacks inline. The fix branch
+  # under test is tamatebako/tebako#367. Before merge, the ref fallback
+  # reverts to '' (published release) — keep the version fallback.
+  EFFECTIVE_TEBAKO_REF: ${{ inputs.tebako_ref || 'fix/windows-exec-chain' }}
+  EFFECTIVE_TEBAKO_VERSION: ${{ inputs.tebako_version || '0.1.1' }}
 
 jobs:
   dogfood:
@@ -62,10 +69,10 @@ jobs:
 
       # ---- source the CLI: published release (default) -------------------
       - name: Download tebako + tebako-shim (windows-ucrt64, pinned sha256)
-        if: ${{ inputs.tebako_ref == '' }}
+        if: ${{ env.EFFECTIVE_TEBAKO_REF == '' }}
         shell: bash
         env:
-          TEBAKO_VERSION: ${{ inputs.tebako_version }}
+          TEBAKO_VERSION: ${{ env.EFFECTIVE_TEBAKO_VERSION }}
         run: |
           set -euo pipefail
           BIN="$RUNNER_TEMP/tebako-bin"
@@ -83,17 +90,17 @@ jobs:
       # The product release leg's own provisioning + script (so the dogfood
       # also exercises the import gate). The path layout mirrors the product
       # CI: tebako-rs/ with the dwarfs-rs/ sibling path dep next to it.
-      - name: Checkout tamatebako/tebako @ ${{ inputs.tebako_ref }}
-        if: ${{ inputs.tebako_ref != '' }}
+      - name: Checkout tamatebako/tebako @ ${{ env.EFFECTIVE_TEBAKO_REF }}
+        if: ${{ env.EFFECTIVE_TEBAKO_REF != '' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tamatebako/tebako
-          ref: ${{ inputs.tebako_ref }}
+          ref: ${{ env.EFFECTIVE_TEBAKO_REF }}
           path: tebako-rs
           submodules: recursive
 
       - name: Checkout dwarfs-rs (sibling path dep)
-        if: ${{ inputs.tebako_ref != '' }}
+        if: ${{ env.EFFECTIVE_TEBAKO_REF != '' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tamatebako/dwarfs-rs
@@ -101,7 +108,7 @@ jobs:
           submodules: recursive
 
       - name: Restore the vcpkg baseline (dwarfs-t is the single writer)
-        if: ${{ inputs.tebako_ref != '' }}
+        if: ${{ env.EFFECTIVE_TEBAKO_REF != '' }}
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -111,7 +118,7 @@ jobs:
             || echo "baseline miss — ports build normally"
 
       - name: Set up MSys2 (ucrt64 toolchain + cmake/ninja)
-        if: ${{ inputs.tebako_ref != '' }}
+        if: ${{ env.EFFECTIVE_TEBAKO_REF != '' }}
         uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2
         with:
           msystem: ucrt64
@@ -119,35 +126,35 @@ jobs:
           install: mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-make
 
       - name: Rust toolchain (windows-gnu target)
-        if: ${{ inputs.tebako_ref != '' }}
+        if: ${{ env.EFFECTIVE_TEBAKO_REF != '' }}
         uses: dtolnay/rust-toolchain@e43eeffd51aefeea929f4ea14e09fd077153e788 # 1.94.1
         with:
           targets: x86_64-pc-windows-gnu
 
       - name: Set up vcpkg
-        if: ${{ inputs.tebako_ref != '' }}
+        if: ${{ env.EFFECTIVE_TEBAKO_REF != '' }}
         uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11.6
         with:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
           vcpkgDirectory: ${{ github.workspace }}/.vcpkg-root
 
       - name: Cache vcpkg package archives
-        if: ${{ inputs.tebako_ref != '' }}
+        if: ${{ env.EFFECTIVE_TEBAKO_REF != '' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/AppData/Local/vcpkg/archives
-          key: vcpkg-archives-dogfood-${{ inputs.tebako_ref }}-${{ hashFiles('dwarfs-rs/dwarfs-t/vcpkg.json') }}
+          key: vcpkg-archives-dogfood-${{ github.sha }}-${{ hashFiles('dwarfs-rs/dwarfs-t/vcpkg.json') }}
           restore-keys: vcpkg-archives-dogfood-
 
       - name: Cache the cargo target dir
-        if: ${{ inputs.tebako_ref != '' }}
+        if: ${{ env.EFFECTIVE_TEBAKO_REF != '' }}
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
         with:
           workspaces: tebako-rs
-          key: dogfood-${{ inputs.tebako_ref }}
+          key: dogfood-${{ github.sha }}
 
       - name: Build the CLI + shim through the product's release script
-        if: ${{ inputs.tebako_ref != '' }}
+        if: ${{ env.EFFECTIVE_TEBAKO_REF != '' }}
         working-directory: tebako-rs
         shell: bash
         env:
@@ -167,7 +174,7 @@ jobs:
           echo "$BIN" >> "$GITHUB_PATH"
 
       - name: Dump vcpkg build logs on failure
-        if: ${{ failure() && inputs.tebako_ref != '' }}
+        if: ${{ failure() && env.EFFECTIVE_TEBAKO_REF != '' }}
         shell: bash
         run: |
           for f in .vcpkg-root/buildtrees/*/build-x64-mingw-static-*-err.log .vcpkg-root/buildtrees/*/install-x64-mingw-static-*-err.log; do
