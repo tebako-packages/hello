@@ -153,24 +153,43 @@ jobs:
           workspaces: tebako-rs
           key: dogfood-${{ github.sha }}
 
-      - name: Build the CLI + shim through the product's release script
+      - name: Build the CLI + shim from the ref (dev profile, gate-audited)
         if: ${{ env.EFFECTIVE_TEBAKO_REF != '' }}
         working-directory: tebako-rs
         shell: bash
         env:
           DWARFS_RS_VCPKG_ROOT: ${{ github.workspace }}/.vcpkg-root
           VCPKG_ROOT: ${{ github.workspace }}/.vcpkg-root
-          VERSION: 0.0.0-dogfood
-          PLATFORM: windows-ucrt64
         run: |
           set -euo pipefail
-          # Builds the five binaries, stages them, and runs the release
-          # leg's own import gate over out/*.exe.
-          bash ci/windows-gnu-release.sh
+          # The product CI leg's own provisioning (ci/windows-gnu-cli.sh is
+          # the source of truth — mirrored here so the dogfood builds the
+          # two binaries it needs in DEV profile: the ~42 min release build
+          # buys opt-level=z/LTO the dogfood never exercises). The link
+          # wrapper + import gate are the linkage proof and run on the
+          # exact exes dogfooded below; the release-profile gate evidence
+          # lives in the product's own CI/release legs.
+          export PATH="/d/a/_temp/msys64/ucrt64/bin:/c/Program Files/Git/usr/bin:/c/Program Files/Git/cmd:/c/Users/runneradmin/.cargo/bin:/c/Windows/System32"
+          TOOLSHIM=/d/a/_temp/tebako-toolshim
+          mkdir -p "$TOOLSHIM"
+          cp "/d/a/_temp/msys64/ucrt64/bin/mingw32-make.exe" "$TOOLSHIM/make.exe"
+          export PATH="$TOOLSHIM:$PATH"
+          WRAP="$RUNNER_TEMP/tebako-link-wrap.exe"
+          gcc -O2 -o "$WRAP" ci/windows-gnu-link-wrap.c
+          export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$(cygpath -w "$WRAP")"
+          export RUSTFLAGS="-C link-arg=-static-libgcc -C link-arg=-static-libstdc++ -C link-arg=-lmsvcrt"
+          export BOTAN_CONFIGURE_CC=gcc
+          UCRT64=/d/a/_temp/msys64/ucrt64
+          GCC_INCLUDE=$(echo "$UCRT64"/lib/gcc/x86_64-w64-mingw32/*/include)
+          export BINDGEN_EXTRA_CLANG_ARGS="--target=x86_64-w64-mingw32 -isystem $(cygpath -m "$UCRT64/include") -isystem $(cygpath -m "$GCC_INCLUDE")"
+          cargo build -p tebako-cli -p tebako-shim --target x86_64-pc-windows-gnu
+          bash ci/windows-gnu-import-gate.sh \
+            target/x86_64-pc-windows-gnu/debug/tebako.exe \
+            target/x86_64-pc-windows-gnu/debug/tebako-shim.exe
           BIN="$RUNNER_TEMP/tebako-bin"
           mkdir -p "$BIN"
-          cp "out/tebako-${VERSION}-${PLATFORM}.exe" "$BIN/tebako.exe"
-          cp "out/tebako-shim-${VERSION}-${PLATFORM}.exe" "$BIN/tebako-shim.exe"
+          cp target/x86_64-pc-windows-gnu/debug/tebako.exe "$BIN/tebako.exe"
+          cp target/x86_64-pc-windows-gnu/debug/tebako-shim.exe "$BIN/tebako-shim.exe"
           echo "$BIN" >> "$GITHUB_PATH"
 
       - name: Dump vcpkg build logs on failure
@@ -208,8 +227,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ls -la "$HOME/.tebako/shims/"
-          OUT="$("$HOME/.tebako/shims/hello.exe" 2>&1)"
+          # The store root on windows is %LOCALAPPDATA%\tebako
+          # (default_cache_root), NOT ~/.tebako.
+          STORE="$LOCALAPPDATA/tebako"
+          ls -la "$STORE/shims/"
+          OUT="$("$STORE/shims/hello.exe" 2>&1)"
           echo "$OUT"
           case "$OUT" in
             *"Hello, world!"*) echo "DOGFOOD PASS: shim ran the published payload" ;;
@@ -220,7 +242,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          OUT="$("$HOME/.tebako/shims/hello.exe" --version 2>&1 | head -1)"
+          OUT="$("$LOCALAPPDATA/tebako/shims/hello.exe" --version 2>&1 | head -1)"
           echo "$OUT"
           case "$OUT" in
             *"2.12"*) echo "DOGFOOD PASS: --version names 2.12" ;;
@@ -241,14 +263,15 @@ jobs:
         shell: bash
         run: |
           set +e
-          echo "=== ~/.tebako tree ==="
-          find "$HOME/.tebako" -maxdepth 4 | sort
+          STORE="$LOCALAPPDATA/tebako"
+          echo "=== store tree ($STORE) ==="
+          find "$STORE" -maxdepth 4 | sort
           echo "=== config.yaml ==="
-          cat "$HOME/.tebako/config.yaml" 2>/dev/null
+          cat "$STORE/config.yaml" 2>/dev/null
           echo "=== journal.log ==="
-          cat "$HOME/.tebako/journal.log" 2>/dev/null
+          cat "$STORE/journal.log" 2>/dev/null
           echo "=== shims ==="
-          ls -la "$HOME/.tebako/shims/" 2>/dev/null
+          ls -la "$STORE/shims/" 2>/dev/null
           echo "=== payloads ==="
-          ls -la "$HOME/.tebako/payloads/hello/" 2>/dev/null
+          ls -la "$STORE/payloads/hello/" 2>/dev/null
           exit 0
