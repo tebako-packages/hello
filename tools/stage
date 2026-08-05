@@ -65,6 +65,27 @@ check_filled "$ROOT/__tpkg__/manifest.yaml"
 # repack with the manifest inside (same imager + flags as tools/build)
 pack_image "$PLATFORM" "$OUT/tools" "$ROOT" "$IMAGE"
 
+# --- read-back: a broken payload fails THIS leg, never the publish ----
+# Re-read the repacked image with the leg's own reader (tebakofs /
+# tfs.exe): the embedded tier-1 manifest must exist and parse as YAML,
+# and every entrypoint it declares must exist in the image — proven
+# here, before anything can upload.
+echo "stage: read-back validation of $IMAGE"
+READER="$(image_reader "$PLATFORM" "$OUT")"
+EMBEDDED="$("$READER" cat "$IMAGE" /__tpkg__/manifest.yaml)" || {
+  echo "stage: read-back FAILED — no /__tpkg__/manifest.yaml in $IMAGE" >&2; exit 1; }
+ENTRY_PATHS="$(printf '%s' "$EMBEDDED" | ruby --disable-gems -ryaml -e '
+  m = YAML.load(STDIN.read)
+  es = (m.dig("provides", "executables") || []) + (m.dig("provides", "entrypoints") || [])
+  es.each { |e| puts e["path"] }')" || {
+  echo "stage: read-back FAILED — embedded manifest is not valid YAML" >&2; exit 1; }
+while IFS= read -r p; do
+  [ -n "$p" ] || continue
+  "$READER" stat "$IMAGE" "$p" >/dev/null || {
+    echo "stage: read-back FAILED — declared entrypoint $p missing from $IMAGE" >&2; exit 1; }
+  echo "stage: read-back: $p present"
+done <<< "$ENTRY_PATHS"
+
 BLOB_SHA="$(sha256_of "$IMAGE")"
 fill_manifest "$BLOB_SHA" > "$MAN"
 check_filled "$MAN"
