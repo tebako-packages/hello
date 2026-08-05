@@ -151,7 +151,10 @@ jobs:
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
         with:
           workspaces: tebako-rs
-          key: dogfood-${{ github.sha }}
+          # One rolling slot for the dogfood's source builds (a run's save
+          # feeds the next run even when the job later fails an assertion).
+          shared-key: dogfood-tebako
+          cache-on-failure: true
 
       - name: Build the CLI + shim from the ref (dev profile, gate-audited)
         if: ${{ env.EFFECTIVE_TEBAKO_REF != '' }}
@@ -242,14 +245,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          OUT="$("$LOCALAPPDATA/tebako/shims/hello.exe" --version 2>&1 | head -1)"
-          echo "$OUT"
-          case "$OUT" in
+          # Capture the FULL output: piping the child through `head -1`
+          # breaks on windows (no SIGPIPE — head exits, the child's next
+          # write fails, and pipefail then kills the step before any
+          # assertion runs). The assignment still carries the child's
+          # exit code (set -e fails the step on a nonzero exit).
+          RAW="$("$LOCALAPPDATA/tebako/shims/hello.exe" --version 2>&1)"
+          echo "$RAW"
+          FIRST="$(printf '%s\n' "$RAW" | head -1)"
+          case "$FIRST" in
             *"2.12"*) echo "DOGFOOD PASS: --version names 2.12" ;;
             *) echo "DOGFOOD FAIL: expected 2.12 in --version output" >&2; exit 1 ;;
           esac
 
       - name: Probe `tebako run` (package-file surface; expected to refuse a nickname)
+        if: always()
         shell: bash
         run: |
           set +e
