@@ -70,9 +70,14 @@ pack_image "$PLATFORM" "$OUT/tools" "$ROOT" "$IMAGE"
 # tfs.exe): the embedded tier-1 manifest must exist and parse as YAML,
 # and every entrypoint it declares must exist in the image — proven
 # here, before anything can upload.
+# MSYS2_ARG_CONV_EXCL: the VFS paths (/__tpkg__/manifest.yaml, the
+# declared /bin/… entrypoints) must reach the native windows reader
+# verbatim — msys2 would otherwise rewrite them to host paths. The image
+# path itself is relative (out/<platform>/…), so it needs no conversion.
+# Inert on POSIX.
 echo "stage: read-back validation of $IMAGE"
 READER="$(image_reader "$PLATFORM" "$OUT")"
-EMBEDDED="$("$READER" cat "$IMAGE" /__tpkg__/manifest.yaml)" || {
+EMBEDDED="$(MSYS2_ARG_CONV_EXCL='*' "$READER" cat "$IMAGE" /__tpkg__/manifest.yaml)" || {
   echo "stage: read-back FAILED — no /__tpkg__/manifest.yaml in $IMAGE" >&2; exit 1; }
 ENTRY_PATHS="$(printf '%s' "$EMBEDDED" | ruby --disable-gems -ryaml -e '
   m = YAML.load(STDIN.read)
@@ -81,7 +86,7 @@ ENTRY_PATHS="$(printf '%s' "$EMBEDDED" | ruby --disable-gems -ryaml -e '
   echo "stage: read-back FAILED — embedded manifest is not valid YAML" >&2; exit 1; }
 while IFS= read -r p; do
   [ -n "$p" ] || continue
-  "$READER" stat "$IMAGE" "$p" >/dev/null || {
+  MSYS2_ARG_CONV_EXCL='*' "$READER" stat "$IMAGE" "$p" >/dev/null || {
     echo "stage: read-back FAILED — declared entrypoint $p missing from $IMAGE" >&2; exit 1; }
   echo "stage: read-back: $p present"
 done <<< "$ENTRY_PATHS"
