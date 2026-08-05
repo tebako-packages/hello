@@ -1,0 +1,113 @@
+# SCRATCH — linkage experiment for the windows-ucrt64 exit-127 root cause.
+# NOT part of the dogfood; deleted before the branch's PR. See
+# dogfood-windows.yml for the permanent workflow.
+#
+# Question: which link configuration makes a windows-gnu exe that pulls
+# C++ objects (std::filesystem, std::thread, pthread_rwlock) import ONLY
+# inbox DLLs on stock Windows? The published tebako 0.1.1 exes import
+# libstdc++-6.dll + libwinpthread-1.dll despite
+# RUSTFLAGS="-C link-arg=-static-libgcc -C link-arg=-static-libstdc++"
+# and die before main (127) anywhere ucrt64/bin is not on PATH.
+name: scratch-link-experiment
+on:
+  push:
+    branches: [ci/dogfood-windows]
+
+jobs:
+  variants:
+    runs-on: windows-latest
+    steps:
+      - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2
+        with:
+          msystem: ucrt64
+          path-type: minimal
+          install: mingw-w64-ucrt-x86_64-toolchain
+      - name: rustup target
+        shell: bash
+        run: rustup target add x86_64-pc-windows-gnu
+      - name: build the variants
+        shell: msys2 {0}
+        run: |
+          set -euxo pipefail
+          export PATH="/c/Users/runneradmin/.cargo/bin:$PATH"
+          ROOT="$RUNNER_TEMP/linkexp"
+          rm -rf "$ROOT"; mkdir -p "$ROOT"; cd "$ROOT"
+
+          make_variant() {
+            local name="$1" emissions="$2"
+            mkdir -p "$name/src" "$name/native"
+            printf '%s\n' \
+              '[package]' \
+              "name = \"$name\"" \
+              'version = "0.0.0"' \
+              'edition = "2021"' \
+              '' \
+              '[build-dependencies]' \
+              'cc = "1"' > "$name/Cargo.toml"
+            cat > "$name/native/native.cc" <<'NATIVE_EOF'
+          #include <filesystem>
+          #include <thread>
+          #include <pthread.h>
+          #include <string>
+          static pthread_rwlock_t rw = PTHREAD_RWLOCK_INITIALIZER;
+          extern "C" int native_answer() {
+            pthread_rwlock_wrlock(&rw);
+            auto p = std::filesystem::relative(std::filesystem::path("/a/b/c"), std::filesystem::path("/a"));
+            std::string s = p.string();
+            std::thread t([]{});
+            t.join();
+            pthread_rwlock_unlock(&rw);
+            return (int)s.size();
+          }
+          NATIVE_EOF
+            {
+              echo 'fn main() {'
+              echo '    cc::Build::new().cpp(true).file("native/native.cc").compile("native");'
+              printf '    %s\n' $emissions
+              echo '}'
+            } > "$name/build.rs"
+            cat > "$name/src/main.rs" <<'MAIN_EOF'
+          unsafe extern "C" { fn native_answer() -> i32; }
+          fn main() { println!("answer={}", unsafe { native_answer() }); }
+          MAIN_EOF
+          }
+
+          make_variant plain 'println!("cargo:rustc-link-lib=stdc++"); println!("cargo:rustc-link-lib=pthread");'
+          make_variant statickind 'println!("cargo:rustc-link-lib=static=stdc++"); println!("cargo:rustc-link-lib=static=gcc"); println!("cargo:rustc-link-lib=static=gcc_eh"); println!("cargo:rustc-link-lib=static=winpthread");'
+
+          # v1: the CURRENT release flags + plain emissions (expect: repro of the bug)
+          (cd plain && RUSTFLAGS="-C link-arg=-static-libgcc -C link-arg=-static-libstdc++ -C link-arg=-lmsvcrt" \
+            cargo build --release --target x86_64-pc-windows-gnu 2>&1 | tail -3)
+          cp plain/target/x86_64-pc-windows-gnu/release/plain.exe /tmp/v1-current-flags.exe
+
+          # v2: static= emissions (expect: clean imports)
+          (cd statickind && RUSTFLAGS="-C link-arg=-static-libgcc -C link-arg=-lmsvcrt" \
+            cargo build --release --target x86_64-pc-windows-gnu 2>&1 | tail -3)
+          cp statickind/target/x86_64-pc-windows-gnu/release/statickind.exe /tmp/v2-static-kind.exe
+
+          # v3: plain emissions + trailing -static link-arg
+          (cd plain && cargo clean -q && RUSTFLAGS="-C link-arg=-static -C link-arg=-lmsvcrt" \
+            cargo build --release --target x86_64-pc-windows-gnu 2>&1 | tail -3)
+          cp plain/target/x86_64-pc-windows-gnu/release/plain.exe /tmp/v3-trailing-static.exe
+
+          # v4: plain emissions, no flags at all
+          (cd plain && cargo clean -q && \
+            cargo build --release --target x86_64-pc-windows-gnu 2>&1 | tail -3)
+          cp plain/target/x86_64-pc-windows-gnu/release/plain.exe /tmp/v4-no-flags.exe
+
+          # v5: static=pthread (does a STATIC libpthread.a exist, or is it the import lib?)
+          make_variant staticpthread 'println!("cargo:rustc-link-lib=static=stdc++"); println!("cargo:rustc-link-lib=static=pthread");'
+          (cd staticpthread && RUSTFLAGS="-C link-arg=-static-libgcc -C link-arg=-lmsvcrt" \
+            cargo build --release --target x86_64-pc-windows-gnu 2>&1 | tail -3) || true
+          cp staticpthread/target/x86_64-pc-windows-gnu/release/staticpthread.exe /tmp/v5-static-pthread.exe 2>/dev/null || true
+
+          for exe in /tmp/v*.exe; do
+            echo "=== imports: $exe ==="
+            objdump -p "$exe" | grep "DLL Name" | sort -u || true
+          done
+
+          echo "=== stock-windows simulation (PATH without ucrt64) ==="
+          for exe in /tmp/v*.exe; do
+            echo "--- $exe"
+            PATH="/c/Windows/System32:/c/Windows" "$exe" && echo RUN-OK || echo "RUN-FAIL rc=$?"
+          done
