@@ -10,7 +10,7 @@ name: dogfood-windows
 #   %LOCALAPPDATA%\tebako\shims\hello.exe   -> "Hello, world!"
 #
 # The CLI under test is, by default, the published tamatebako/tebako
-# release (sha256-pinned below — v0.1.1 ships no SHA256SUMS asset).
+# release (sha256-pinned below, verified against its SHA256SUMS).
 # With the `tebako_ref` input the CLI+shim are instead BUILT from that
 # tamatebako/tebako ref (dev profile, the product CI leg's own
 # provisioning, its link wrapper + import gate included) — the
@@ -23,7 +23,7 @@ on:
     inputs:
       tebako_version:
         description: 'Published tamatebako/tebako release to dogfood (ignored when tebako_ref is set)'
-        default: '0.1.1'
+        default: '0.1.2'
       tebako_ref:
         description: 'tamatebako/tebako ref to BUILD the CLI+shim from instead of downloading a release'
         default: ''
@@ -36,10 +36,10 @@ permissions:
   contents: read
 
 env:
-  # Expected digests of the published v0.1.1 assets (computed from the
-  # published assets at authoring time; that release ships no SHA256SUMS).
-  TEBAKO_CLI_SHA256: "9cd4f2e0922acb776797a284f2f3ea1448f93c228c92e84b0f1f7a322857c2b8"
-  TEBAKO_SHIM_SHA256: "ab5af866718ae0f6ec280092471bc397f640a69aeb03cba7cbc3bd1a1ae1bbbc"
+  # Expected digests of the published v0.1.2 assets (from the release's
+  # SHA256SUMS).
+  TEBAKO_CLI_SHA256: "00f1990c74c3eae1eb2328b67d441eaa4f6ab34f25887dec89d3e058d72d116a"
+  TEBAKO_SHIM_SHA256: "dbdbe2fa79bf97e90c061fa4da35f36141c42819eea171986e4e58a55a83d376"
   # The CLI's own log grammar (crates/tebako-log): TEBAKO_DEBUG=<level>.
   TEBAKO_DEBUG: "debug"
   # The product CI's vcpkg pin (tamatebako/tebako .github/workflows env).
