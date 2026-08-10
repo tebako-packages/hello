@@ -1,0 +1,71 @@
+name: probe-crt
+# Dispatch-only probe: why does the 0.16.3 windows stub runtime fail to
+# start under the msys2-minimal feedstock environment with
+# "api-ms-win-crt-utility-l1-1-0.dll: cannot open shared object file"
+# while the same exe runs fine under git-bash (hello dogfood) and the
+# 0.16.2 monolithic exe ran in the same msys2 environment?
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    env:
+      RT: tebako-runtime-0.16.3-3.3.7-windows-ucrt64
+    steps:
+      - name: Fetch the runtime facet set (sha256-verified)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rt && cd rt
+          base="https://github.com/tamatebako/tebako-runtime-ruby/releases/download/v0.16.3"
+          curl -sSfLO "$base/SHA256SUMS.txt"
+          for f in "$RT" "$RT.dll"; do
+            curl -sSfL -o "$f" "$base/$f"
+            grep "  $f\$" SHA256SUMS.txt | sha256sum -c -
+          done
+          mv "$RT" "$RT.exe"
+
+      - name: Where does the CRT utility DLL resolve (git-bash env)?
+        shell: bash
+        run: |
+          set -x
+          where api-ms-win-crt-utility-l1-1-0.dll || true
+          ls /usr/bin/api-ms-win-crt-utility* 2>/dev/null || echo "not in git usr/bin"
+          ls "/c/Windows/System32/api-ms-win-crt-utility"* 2>/dev/null || echo "not in System32"
+          ls "/c/Windows/System32/downlevel/" 2>/dev/null | grep -i utility || echo "not in downlevel"
+          echo "PATH=$PATH"
+
+      - name: Run the stub under git-bash (expected OK per the hello dogfood)
+        shell: bash
+        run: |
+          set -x
+          cd rt
+          "./$RT.exe" --help || echo "exit=$?"
+
+      - name: Set up msys2 minimal (the feedstock leg's environment)
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2
+        with:
+          msystem: ucrt64
+          path-type: minimal
+          install: mingw-w64-ucrt-x86_64-gcc-libs
+
+      - name: Where does it resolve (msys2 minimal)?
+        shell: msys2 {0}
+        run: |
+          set -x
+          where api-ms-win-crt-utility-l1-1-0.dll || true
+          ls /usr/bin/api-ms-win-crt-utility* 2>/dev/null || echo "not in msys2 usr/bin"
+          ls /ucrt64/bin/api-ms-win-crt-utility* 2>/dev/null || echo "not in ucrt64/bin"
+          echo "PATH=$PATH"
+
+      - name: Run the stub under msys2 minimal (the failing shape)
+        shell: msys2 {0}
+        run: |
+          set -x
+          cd "$GITHUB_WORKSPACE/rt" || cd rt
+          ldd "./$RT.exe" || true
+          "./$RT.exe" --help || echo "exit=$?"
