@@ -1,6 +1,12 @@
 schema_version: 1
 # tebako-packages/hello — this feedstock's payload registry.
 # Consumed as tfs:github:tebako-packages/hello (default-branch form).
+#
+# 2.12 assets ride the 2.12.1 release tag: the 2.12 assets carried an
+# embedded manifest the install-time tier-1 parse rejects (tree_hash: "")
+# and the three non-windows pins here had gone stale against a clobbered
+# rebuild — both fixed by the 2.12.1 rebuild; the payload version stays
+# 2.12 (upstream's identity), the tag only names the publishing event.
 payloads:
   - name: hello
     kind: toolkit
@@ -11,14 +17,14 @@ payloads:
         platforms:
           aarch64-macos:
             artifact: hello-2.12-aarch64-macos.tfs
-            sha256: "fde3ea2d9d3127dea19fd9f2e8f71d4b093c66498a9956c0756ab1e95d8a885a"
+            sha256: "0f1c7cc02d20cd357b534f1cccc0d1e849c627bffa69f642a7050a4a6d521d5b"
           x86_64-macos:
             artifact: hello-2.12-x86_64-macos.tfs
-            sha256: "0f90dfdbee69b6d2b4fb63c3d123c4c6adcc0e13268b499243e3f7a2b407b60d"
+            sha256: "826ad978291f4edcc9d95a55a88783a5cf0fb0c24893e1944a731979d2833e43"
           x86_64-linux-gnu:
             artifact: hello-2.12-x86_64-linux-gnu.tfs
-            sha256: "3f415369565cfbdfbe947d18d073d502d5570c623b71055cd0f7e0062df3d81b"
+            sha256: "d288c553cc80a8fad1b7005ef8546743b48b83dca90b7d7211adfeb11ee26882"
           x86_64-windows-ucrt:
             artifact: hello-2.12-x86_64-windows-ucrt.tfs
-            sha256: "992ea6f2ef773bf9e5118f8603ff04fc4a164958675e86332697ab1ec0697cc8"
-        release: {ref: tfs:github:tebako-packages/hello:2.12}
+            sha256: "86adca69395f371f8ccedcada26209dcacc162a56deee57ac5e0c77b1b03b8fe"
+        release: {ref: tfs:github:tebako-packages/hello:2.12.1}
