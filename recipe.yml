@@ -27,8 +27,8 @@ tools:
   # pin time) — the same trust-anchor role as upstream.sha256.
   windows:
     repo: "tamatebako/tebako"
-    release: "v0.1.3"
-    sha256: "56e9477d3f7d8b3c04423acda06c0d7f4e1cc5fb98ae0a34725efeb364042b54"
+    release: "v0.1.5"
+    sha256: "b1165ca8266ec4b589be81d48e2d20ed125f2de75cd75674e50bd384ede59ec8"
 
 platforms:
   - x86_64-linux-gnu
