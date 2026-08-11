@@ -23,7 +23,7 @@ on:
     inputs:
       tebako_version:
         description: 'Published tamatebako/tebako release to dogfood (ignored when tebako_ref is set)'
-        default: '0.1.3'
+        default: '0.1.5'
       tebako_ref:
         description: 'tamatebako/tebako ref to BUILD the CLI+shim from instead of downloading a release'
         default: ''
@@ -36,10 +36,10 @@ permissions:
   contents: read
 
 env:
-  # Expected digests of the published v0.1.3 assets (from the release's
+  # Expected digests of the published v0.1.5 assets (from the release's
   # SHA256SUMS).
-  TEBAKO_CLI_SHA256: "fa440e22e482da94652233cc686543287df517157c039fe27a32ee47e4284b75"
-  TEBAKO_SHIM_SHA256: "8d9e3d8316c04140bca6c2de39b89cc775c56ec6998c8cd98acfaf5743d2958c"
+  TEBAKO_CLI_SHA256: "fcff2a65077b8c1a3b13c2f7ab4a1ffc2ecf8e38d9f426b20f2aa1a9dd75ab82"
+  TEBAKO_SHIM_SHA256: "c539c94cd39e83f0c85f7bb9d1ed5351aa994b85c763a1a819007849c51a5055"
   # The CLI's own log grammar (crates/tebako-log): TEBAKO_DEBUG=<level>.
   TEBAKO_DEBUG: "debug"
   # The product CI's vcpkg pin (tamatebako/tebako .github/workflows env).
