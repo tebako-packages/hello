@@ -6,7 +6,14 @@
 #                             staged artifacts, merged by download-artifact)
 #
 # Publishes: per-triplet payload images + manifests, SHA256SUMS, and the
-# resolved tpkg-registry.yaml (artifact URLs + sha256) for this release.
+# resolved tpkg-registry.yaml (the payloads: shape — spec 04 §2 + spec 18)
+# for this release. When the recipe declares a signing: block (spec 09
+# §9), every .tfs plus SHA256SUMS and the registry itself are signed with
+# the CI signing subkey (org secret TEBAKO_CI_SIGNING_KEY) via the pinned,
+# digest-verified tebako-pkg; the .asc files publish alongside, and the
+# registry pins the PRIMARY keyid (the identity, not the rotating subkey
+# instrument). A declared signer with no key material FAILS the publish —
+# a signing feedstock never ships unsigned silently.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -33,47 +40,105 @@ recipe, tag, repo = ARGV
 r = YAML.load_file(recipe)
 name = r.fetch('name')
 version = r.dig('upstream', 'version') or abort "publish: upstream.version missing"
-base = "https://github.com/#{repo}/releases/download/#{tag}"
+signing = r['signing']
 
 sums = File.readlines('dist/SHA256SUMS').map do |l|
   h, f = l.chomp.split(/\s+/, 2)
   [f.sub(/^\*/, ''), h]   # sha256sum marks binary mode with a leading '*'
 end.to_h
-platforms = Dir.glob('dist/*.tfs').sort.map do |f|
-  art = File.basename(f)
-  prefix = "#{name}-#{version}-"
-  abort "publish: artifact '#{art}' does not match #{name}-#{version}-<triplet>.tfs" unless art.start_with?(prefix)
+
+# spec 04 §2's per-triplet map: triplet => {artifact, sha256} — the
+# registry-supplied trust anchor; artifact names are release assets.
+artifacts = Dir.glob('dist/*.tfs').sort.map { |f| File.basename(f) }
+prefix = "#{name}-#{version}-"
+platforms = artifacts.to_h do |art|
+  abort "publish: artifact '#{art}' does not match #{prefix}<triplet>.tfs" unless art.start_with?(prefix)
   triplet = art.delete_prefix(prefix).delete_suffix('.tfs')
-  { 'triplet' => triplet, 'url' => "#{base}/#{art}",
+  [triplet, {
+    'artifact' => art,
     'sha256' => sums.fetch(art) { abort "publish: #{art} missing from SHA256SUMS" },
-    'manifest' => "#{base}/#{art.sub(/\.tfs$/, '.manifest.yaml')}" }
+  }]
 end
+
+entry = {
+  'version' => version,
+  'platforms' => platforms,
+  'release' => {'ref' => "tfs:github:#{repo}:#{tag}"},
+}
+if signing
+  # spec 09 §9: the pin names the signing key's PRIMARY keyid. Per-triplet
+  # releases carry one asc per artifact by convention (<artifact>.asc) and
+  # the installer derives the SELECTED artifact's asc; `asc` names the
+  # first artifact's as the convention anchor.
+  entry['signature'] = {'keyid' => signing.fetch('keyid'), 'asc' => "#{artifacts.first}.asc"}
+end
+entrypoints = (r.dig('provides', 'executables') || []).map { |e| e.fetch('name') }
+entry['entrypoints'] = entrypoints unless entrypoints.empty?
 
 puts YAML.dump(
   'schema_version' => 1,
-  'packages' => [{
+  'payloads' => [{
     'name' => name,
     'kind' => r.fetch('kind', 'toolkit'),
-    'summary' => r.fetch('summary', ''),
-    'versions' => [{ 'version' => tag, 'platforms' => platforms }],
+    'versions' => [entry],
+    'default' => version,
   }]
 )
 RUBY
 echo "--- dist/tpkg-registry.yaml ---"
 cat dist/tpkg-registry.yaml
 
+# --- signing (spec 09 §9 — opt-in via the recipe's signing: block) -----
+ASCS=()
+SIGN_KEYID="$("$HERE/recipe_query" "$RECIPE" signing.keyid 2>/dev/null || true)"
+if [ -n "$SIGN_KEYID" ]; then
+  : "${TEBAKO_SIGNING_KEY:?publish: recipe declares signing but TEBAKO_SIGNING_KEY is empty — a signing feedstock never publishes unsigned}"
+  WORK="$(mktemp -d "${TMPDIR:-/tmp}/tebako-publish.XXXXXXXX")"
+  trap 'rm -rf "$WORK"' EXIT
+  download_signer "$WORK" \
+    "$("$HERE/recipe_query" "$RECIPE" signing.tool.repo)" \
+    "$("$HERE/recipe_query" "$RECIPE" signing.tool.release)" \
+    "$("$HERE/recipe_query" "$RECIPE" signing.tool.sha256)"
+  KEY_FILE="$WORK/signing-key.asc"
+  printf '%s\n' "$TEBAKO_SIGNING_KEY" > "$KEY_FILE"
+  chmod 600 "$KEY_FILE"
+  if ! SIGN_OUT="$("$WORK/tebako-pkg" sign --key-file "$KEY_FILE" --no-sums \
+      "${IMAGES[@]}" dist/SHA256SUMS dist/tpkg-registry.yaml 2>&1)"; then
+    printf '%s\n' "$SIGN_OUT" >&2
+    echo "publish: tebako-pkg sign failed" >&2
+    exit 1
+  fi
+  echo "$SIGN_OUT"
+  # The signer self-reports the PRIMARY keyid — it must be the pinned one.
+  REPORTED="$(printf '%s\n' "$SIGN_OUT" | sed -n 's/^signed .* with key \([0-9a-f]\{16\}\).*/\1/p')"
+  if [ "$REPORTED" != "$SIGN_KEYID" ]; then
+    echo "publish: SIGNER KEYID MISMATCH — recipe pins $SIGN_KEYID, tebako-pkg reported ${REPORTED:-none}" >&2
+    exit 1
+  fi
+  ASCS=(dist/*.asc)
+  WANT=$(( ${#IMAGES[@]} + 2 ))   # one .asc per image + SHA256SUMS + the registry
+  [ "${#ASCS[@]}" -eq "$WANT" ] || {
+    echo "publish: expected $WANT .asc files, found ${#ASCS[@]}" >&2; exit 1; }
+else
+  echo "publish: recipe declares no signing — releasing UNSIGNED (spec 09: unsigned stays first-class, with this loud warning)"
+fi
+
 # --- release -----------------------------------------------------------
 TITLE="$("$HERE/recipe_query" "$RECIPE" name) $TAG"
 NOTES="tebako toolkit payload — built from recipe.yml by build-payload.yml. "$'\n'"\
 Artifacts: per-triplet .tfs payload images + spec-03 manifests, SHA256SUMS, resolved tpkg-registry.yaml."
+if [ -n "$SIGN_KEYID" ]; then
+  NOTES="$NOTES"$'\n'"\
+OpenPGP-signed (spec 09 §9): a detached .asc per .tfs plus SHA256SUMS.asc and tpkg-registry.yaml.asc; the registry pins primary keyid $SIGN_KEYID."
+fi
 
 if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
   echo "publish: release $TAG exists — uploading (clobber)"
   gh release upload "$TAG" --repo "$REPO" --clobber \
-    "${IMAGES[@]}" "${MANIFESTS[@]}" dist/SHA256SUMS dist/tpkg-registry.yaml
+    "${IMAGES[@]}" "${MANIFESTS[@]}" "${ASCS[@]}" dist/SHA256SUMS dist/tpkg-registry.yaml
 else
   gh release create "$TAG" --repo "$REPO" --title "$TITLE" --notes "$NOTES" \
-    "${IMAGES[@]}" "${MANIFESTS[@]}" dist/SHA256SUMS dist/tpkg-registry.yaml
+    "${IMAGES[@]}" "${MANIFESTS[@]}" "${ASCS[@]}" dist/SHA256SUMS dist/tpkg-registry.yaml
 fi
 
 echo "publish: OK — https://github.com/$REPO/releases/tag/$TAG"

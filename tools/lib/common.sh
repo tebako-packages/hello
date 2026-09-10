@@ -119,3 +119,18 @@ download_tfs_cli() {
     "$sha256" "${destdir}/tfs.exe"
   chmod +x "${destdir}/tfs.exe"
 }
+
+# download_signer DESTDIR REPO RELEASE SHA256
+# Downloads tebako-pkg-<version>-linux-gnu-x86_64 from the tamatebako/tebako
+# release as tebako-pkg (the signer for the publish job, which always runs
+# on ubuntu-24.04). The asset name carries the version, so — like
+# download_tfs_cli — the digest pinned in the recipe (signing.tool.sha256)
+# is the trust anchor.
+download_signer() {
+  local destdir="$1" repo="$2" release="$3" sha256="$4"
+  local asset="tebako-pkg-${release#v}-linux-gnu-x86_64"
+  mkdir -p "$destdir"
+  fetch_verified "https://github.com/${repo}/releases/download/${release}/${asset}" \
+    "$sha256" "${destdir}/tebako-pkg"
+  chmod +x "${destdir}/tebako-pkg"
+}

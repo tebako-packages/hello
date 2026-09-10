@@ -22,4 +22,8 @@ $ tools/stage out/aarch64-macos aarch64-macos # dist/hello-2.12-*.tfs + manifest
 ```
 
 Releases carry per-triplet payload images (`hello-<version>-<triplet>.tfs`),
-manifests, `SHA256SUMS`, and the resolved `tpkg-registry.yaml`.
+manifests, `SHA256SUMS`, the resolved `tpkg-registry.yaml` (the spec 04 §2
+`payloads:` shape), and — per the recipe's `signing:` block (spec 09 §9) — a
+detached OpenPGP `.asc` per image plus `SHA256SUMS.asc` and
+`tpkg-registry.yaml.asc`, all signed by the tamatebako root's CI signing
+subkey (the registry pins the primary keyid `efc3c250f7862a48`).
