@@ -1,30 +1,28 @@
+---
 schema_version: 1
-# tebako-packages/hello — this feedstock's payload registry.
-# Consumed as tfs:github:tebako-packages/hello (default-branch form).
-#
-# 2.12 assets ride the 2.12.1 release tag: the 2.12 assets carried an
-# embedded manifest the install-time tier-1 parse rejects (tree_hash: "")
-# and the three non-windows pins here had gone stale against a clobbered
-# rebuild — both fixed by the 2.12.1 rebuild; the payload version stays
-# 2.12 (upstream's identity), the tag only names the publishing event.
 payloads:
-  - name: hello
-    kind: toolkit
-    summary: "GNU hello — template prover payload for tebako-packages"
-    default: "2.12"
-    versions:
-      - version: "2.12"
-        platforms:
-          aarch64-macos:
-            artifact: hello-2.12-aarch64-macos.tfs
-            sha256: "0f1c7cc02d20cd357b534f1cccc0d1e849c627bffa69f642a7050a4a6d521d5b"
-          x86_64-macos:
-            artifact: hello-2.12-x86_64-macos.tfs
-            sha256: "826ad978291f4edcc9d95a55a88783a5cf0fb0c24893e1944a731979d2833e43"
-          x86_64-linux-gnu:
-            artifact: hello-2.12-x86_64-linux-gnu.tfs
-            sha256: "d288c553cc80a8fad1b7005ef8546743b48b83dca90b7d7211adfeb11ee26882"
-          x86_64-windows-ucrt:
-            artifact: hello-2.12-x86_64-windows-ucrt.tfs
-            sha256: "86adca69395f371f8ccedcada26209dcacc162a56deee57ac5e0c77b1b03b8fe"
-        release: {ref: tfs:github:tebako-packages/hello:2.12.1}
+- name: hello
+  kind: toolkit
+  versions:
+  - version: '2.12'
+    platforms:
+      aarch64-macos:
+        artifact: hello-2.12-aarch64-macos.tfs
+        sha256: d5223ed5ae4c9578812722b0ef3330dca3b659ef9e3c3b567ee3f1683622c861
+      x86_64-linux-gnu:
+        artifact: hello-2.12-x86_64-linux-gnu.tfs
+        sha256: a10205685d22e4b9133695484b89a7a7474ca771c11a70f459d032361a5ca04d
+      x86_64-macos:
+        artifact: hello-2.12-x86_64-macos.tfs
+        sha256: 5a5fd1c25c08e703c3ad87b1ac3ec2ac929dedea76629d3c5317b9f3c05018c4
+      x86_64-windows-ucrt:
+        artifact: hello-2.12-x86_64-windows-ucrt.tfs
+        sha256: 28965db962a35123af47688cef0345b73510d2a3935fbc606b311849000695ce
+    release:
+      ref: tfs:github:tebako-packages/hello:2.12.2
+    signature:
+      keyid: efc3c250f7862a48
+      asc: hello-2.12-aarch64-macos.tfs.asc
+    entrypoints:
+    - hello
+  default: '2.12'
