@@ -4,7 +4,7 @@ Feedstock for **GNU hello** — the template prover for the
 [`tebako-packages`](https://github.com/tebako-packages/index) feedstock
 model (one repo per package, release line per upstream version).
 
-- `recipe.yml` — upstream source (url + sha256), link mode, platforms,
+- `Tebakofile` — upstream source (url + sha256), link mode, platforms,
   declared executables, pinned factory-tool release.
 - `tools/` — the build machine: `emit_matrix`, `build`, `boot_smoke`,
   `stage`, `publish` (see `docs/conventions.md` in the index repo).
@@ -16,7 +16,7 @@ model (one repo per package, release line per upstream version).
 Local build (one leg):
 
 ```console
-$ tools/build recipe.yml 2.12 aarch64-macos   # fetch+verify, make, pack
+$ tools/build Tebakofile 2.12 aarch64-macos   # fetch+verify, make, pack
 $ tools/boot_smoke out/aarch64-macos          # run hello from the image
 $ tools/stage out/aarch64-macos aarch64-macos # dist/hello-2.12-*.tfs + manifest
 ```

@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 # emit_matrix — emit the GitHub Actions build matrix from a feedstock recipe.
-# Usage: ruby tools/emit_matrix recipe.yml
+# Usage: ruby tools/emit_matrix Tebakofile
 # Prints one JSON object: {"include":[{version, platform, runner}, ...]}
 # One leg per (upstream version × platform) in the recipe. Unknown
 # platforms are a hard error — per-platform handling is a recipe feature,

@@ -23,9 +23,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib/common.sh"
 
-RECIPE="recipe.yml"
+RECIPE="Tebakofile"
 case "${1:-}" in
-  *.yml|*.yaml) RECIPE="$1"; shift ;;
+  *.yml|*.yaml|Tebakofile) RECIPE="$1"; shift ;;
 esac
 VERSION="${1:?usage: tools/build [RECIPE] VERSION PLATFORM}"
 PLATFORM="${2:?usage: tools/build [RECIPE] VERSION PLATFORM}"

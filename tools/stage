@@ -16,7 +16,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 
 OUT="${1:?usage: tools/stage OUT_DIR PLATFORM [RECIPE]}"
 PLATFORM="${2:?usage: tools/stage OUT_DIR PLATFORM [RECIPE]}"
-RECIPE="${3:-recipe.yml}"
+RECIPE="${3:-Tebakofile}"
 IMAGE="$OUT/payload.tfs"
 ROOT="$OUT/root"
 [ -f "$IMAGE" ] || { echo "stage: no payload image at $IMAGE (run tools/build first)" >&2; exit 1; }
