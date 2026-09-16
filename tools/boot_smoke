@@ -27,7 +27,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib/common.sh"
 
 OUT="${1:?usage: tools/boot_smoke OUT_DIR [RECIPE]}"
-RECIPE="${2:-recipe.yml}"
+RECIPE="${2:-Tebakofile}"
 IMAGE="$OUT/payload.tfs"
 PLATFORM="${OUT%/}"; PLATFORM="${PLATFORM##*/}"   # out/<platform>
 READER="$(image_reader "$PLATFORM" "$OUT")"

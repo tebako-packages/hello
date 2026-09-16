@@ -28,10 +28,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: m
         run: |
-          # The matrix is EMITTED from recipe.yml (YAML stays thin;
+          # The matrix is EMITTED from Tebakofile (YAML stays thin;
           # logic lives in tools/). tools/emit_matrix emits one leg per
           # (version × platform) in the recipe.
-          echo "legs=$(ruby tools/emit_matrix recipe.yml)" >> "$GITHUB_OUTPUT"
+          echo "legs=$(ruby tools/emit_matrix Tebakofile)" >> "$GITHUB_OUTPUT"
 
   build:
     name: ${{ matrix.platform }}
@@ -64,13 +64,13 @@ jobs:
             mingw-w64-ucrt-x86_64-ruby
       - name: Build ${{ matrix.version }} (${{ matrix.platform }})
         if: matrix.platform != 'x86_64-windows-ucrt'
-        run: tools/build recipe.yml "${{ matrix.version }}" "${{ matrix.platform }}"
+        run: tools/build Tebakofile "${{ matrix.version }}" "${{ matrix.platform }}"
       - name: Build ${{ matrix.version }} (${{ matrix.platform }}, ucrt64)
         if: matrix.platform == 'x86_64-windows-ucrt'
         # the matrix context is not available to step-level `shell`, so
         # the windows leg gets its own step with the literal msys2 keyword
         shell: msys2 {0}
-        run: tools/build recipe.yml "${{ matrix.version }}" "${{ matrix.platform }}"
+        run: tools/build Tebakofile "${{ matrix.version }}" "${{ matrix.platform }}"
       - name: Boot-smoke
         # Hard rule (docs/conventions.md): the packaged tool's --version
         # runs from the image before any release publishes.
@@ -106,7 +106,7 @@ jobs:
           merge-multiple: true
       - name: Publish payloads + registry
         # artifacts per triplet + SHA256SUMS + the resolved tpkg-registry.yaml;
-        # spec 09 §9 signing is declared in recipe.yml, so the org secret
+        # spec 09 §9 signing is declared in Tebakofile, so the org secret
         # must be installed — an empty key on a tag push fails the publish.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
