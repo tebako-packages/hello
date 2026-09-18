@@ -120,7 +120,7 @@ if [ -n "$SIGN_KEYID" ]; then
   [ "${#ASCS[@]}" -eq "$WANT" ] || {
     echo "publish: expected $WANT .asc files, found ${#ASCS[@]}" >&2; exit 1; }
 else
-  echo "publish: recipe declares no signing — releasing UNSIGNED (spec 09: unsigned stays first-class, with this loud warning)"
+  echo "publish: recipe declares no signing — releasing UNSIGNED (unsigned stays first-class, with this loud warning)"
 fi
 
 # --- release -----------------------------------------------------------
