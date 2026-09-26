@@ -15,20 +15,20 @@ build:
   rpath_origin: true       # $ORIGIN/../lib for dynamic builds
   deps: []                 # other feedstocks: [{name, constraint, mount}]
 
-# Factory tools used by tools/build (image creation). The dwarfs-t
-# mkdwarfs/tebakofs binaries ship as per-platform assets of libtfs
-# releases; every download is verified against the release's SHA256SUMS.
+# Image tooling (every leg): the tfs CLI from the tamatebako/tebako
+# release — `tfs mkimage` (limnifs, the default tebako image format) is
+# the imager and the boot smoke's info/tree/extract reader. The asset
+# digests are pinned here (the repo's toolchain pin SSOT — the same
+# trust-anchor role as upstream.sha256) and cross-checked against the
+# release's own SHA256SUMS at fetch time (common.sh's download_tfs).
 tools:
-  repo: "tamatebako/libtfs"
-  release: "v0.13.0"
-  # windows-ucrt legs: the Rust tfs CLI is the imager (the product's
-  # in-process dwarfs-t Writer — never the mkdwarfs CLI). The asset
-  # digest is pinned here (verified against the release's SHA256SUMS at
-  # pin time) — the same trust-anchor role as upstream.sha256.
-  windows:
-    repo: "tamatebako/tebako"
-    release: "v0.1.5"
-    sha256: "b1165ca8266ec4b589be81d48e2d20ed125f2de75cd75674e50bd384ede59ec8"
+  repo: "tamatebako/tebako"
+  release: "v2.8.17"
+  sha256:
+    linux-gnu-x86_64: "083e4886f751901493d124cf90f8dc20a88fb9ba0877db9af1a5b42d0c1d64db"
+    macos-arm64: "f2c957bd27a3b2fea871e04bdf5c8de3689a8327a1474ca698e3936eaf239661"
+    macos-x86_64: "cda457657c1eec648091b23df0c2b3119b1af9cfc1dbd95297772ee546f7ec53"
+    windows-ucrt64: "5ba7d570621ca39de15e680d1206c21d4b9ac571aef2a639ad94a68c2683f7c7"
 
 # Signing (spec 09 §9 — opt-in per feedstock): on tag pushes tools/publish
 # signs every payload image (plus SHA256SUMS and the registry itself) with
