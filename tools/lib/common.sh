@@ -6,15 +6,16 @@
 
 set -euo pipefail
 
-# Map a recipe platform triplet to the infix used by the factory-tool
-# release assets (tamatebako/libtfs releases ship mkdwarfs/tebakofs as
-# <tool>-<infix>).
+# Map a recipe platform triplet to the infix used by the toolchain
+# release assets (tamatebako/tebako releases ship the tfs CLI as
+# tfs-<version>-<infix>[.exe]).
 asset_infix() {
   case "$1" in
-    x86_64-linux-gnu)  printf '%s' linux-gnu-x86_64 ;;
-    aarch64-linux-gnu) printf '%s' linux-gnu-arm64 ;;
-    aarch64-macos)     printf '%s' macos-arm64 ;;
-    x86_64-macos)      printf '%s' macos-x86_64 ;;
+    x86_64-linux-gnu)    printf '%s' linux-gnu-x86_64 ;;
+    aarch64-linux-gnu)   printf '%s' linux-gnu-arm64 ;;
+    aarch64-macos)       printf '%s' macos-arm64 ;;
+    x86_64-macos)        printf '%s' macos-x86_64 ;;
+    x86_64-windows-ucrt) printf '%s' windows-ucrt64 ;;
     *) echo "asset_infix: unknown platform triplet '$1'" >&2; return 1 ;;
   esac
 }
@@ -29,28 +30,28 @@ exe_suffix_for() {
   esac
 }
 
+# tfs_bin TOOLSDIR — the leg's verified tfs CLI (tfs.exe on windows-ucrt).
+tfs_bin() {
+  if [ -f "$1/tfs.exe" ]; then printf '%s' "$1/tfs.exe"; else printf '%s' "$1/tfs"; fi
+}
+
 # pack_image PLATFORM TOOLSDIR ROOT IMAGE — pack ROOT as the payload IMAGE
-# with the platform's imaging tool. Unix legs: the libtfs factory mkdwarfs
-# (flag parity with the C++ oracle; --force: the stage repack overwrites
-# the build image — the tfs CLI's built-in replace semantics). windows-ucrt
-# legs: the Rust tfs CLI's in-process dwarfs-t Writer (the shipping
-# implementation — the feedstock never shells to mkdwarfs there). Hard
-# error on an unknown platform — no silent fallback.
+# with the leg's verified tfs CLI: `tfs mkimage --format limnifs` (the
+# product's in-process writer; limnifs is the default tebako image
+# format). Hard error on an unknown platform — no silent fallback.
 pack_image() {
   case "$1" in
-    *-windows-ucrt) "$2/tfs.exe" mkimage --format dwarfs "$3" --output "$4" ;;
-    *-linux-gnu|*-macos) "$2/mkdwarfs" -i "$3" -o "$4" --no-progress --set-owner 0 --force ;;
+    *-windows-ucrt|*-linux-gnu|*-macos) "$(tfs_bin "$2")" mkimage --format limnifs "$3" --output "$4" ;;
     *) echo "pack_image: unknown platform triplet '$1'" >&2; return 1 ;;
   esac
 }
 
 # image_reader PLATFORM OUTDIR — echo the image-reader binary one built
-# leg carries: the factory tebakofs on unix, the staged tfs.exe on
-# windows-ucrt (subcommand parity: info/tree/extract -d).
+# leg carries: the same verified tfs CLI on every platform (subcommand
+# parity: info/tree/cat/stat/extract -d).
 image_reader() {
   case "$1" in
-    *-windows-ucrt)       printf '%s' "$2/tools/tfs.exe" ;;
-    *-linux-gnu|*-macos)  printf '%s' "$2/tools/tebakofs" ;;
+    *-windows-ucrt|*-linux-gnu|*-macos)  tfs_bin "$2/tools" ;;
     *) echo "image_reader: unknown platform triplet '$1'" >&2; return 1 ;;
   esac
 }
@@ -83,41 +84,30 @@ fetch_verified() {
   echo "verified: $3 (sha256 $got)" >&2
 }
 
-# download_tool TOOL TRIPLET DESTDIR REPO RELEASE
-# Downloads <tool>-<infix> from the given GitHub release and verifies it
-# against the release's own SHA256SUMS asset (fetched once per destdir).
-download_tool() {
-  local tool="$1" triplet="$2" destdir="$3" repo="$4" release="$5"
-  local infix asset base sums expected
+# download_tfs DESTDIR REPO RELEASE TRIPLET EXPECTED_SHA256
+# Downloads tfs-<version>-<infix>[.exe] from the tamatebako/tebako
+# release as tfs[.exe]. The recipe pin (tools.sha256.<infix>) is the
+# trust anchor AND is cross-checked against the release's own SHA256SUMS
+# (both anchored — the same rule the workflow pin checks follow).
+download_tfs() {
+  local destdir="$1" repo="$2" release="$3" triplet="$4" want="$5"
+  local infix asset base sums got exe
   infix="$(asset_infix "$triplet")"
-  asset="${tool}-${infix}"
+  exe=""; case "$triplet" in *-windows-ucrt) exe=".exe" ;; esac
+  asset="tfs-${release#v}-${infix}${exe}"
   base="https://github.com/${repo}/releases/download/${release}"
   sums="${destdir}/SHA256SUMS.${release}"
   mkdir -p "$destdir"
   if [ ! -f "$sums" ]; then
     fetch "${base}/SHA256SUMS" "$sums"
   fi
-  expected="$(awk -v a="$asset" '$2 == a {print $1}' "$sums")"
-  if [ -z "$expected" ]; then
-    echo "download_tool: no sha256 for asset '$asset' in ${repo} ${release} SHA256SUMS" >&2
+  got="$(awk -v a="$asset" '$2 == a {print $1}' "$sums")"
+  if [ "$got" != "$want" ]; then
+    echo "download_tfs: pin mismatch for $asset: recipe=$want release=${got:-ABSENT}" >&2
     return 1
   fi
-  fetch_verified "${base}/${asset}" "$expected" "${destdir}/${tool}"
-  chmod +x "${destdir}/${tool}"
-}
-
-# download_tfs_cli DESTDIR REPO RELEASE SHA256
-# Downloads the tfs CLI windows asset (tfs-<version>-windows-ucrt64.exe)
-# from the tamatebako/tebako release as tfs.exe. That release ships no
-# SHA256SUMS asset, so the caller passes the digest pinned in the recipe
-# (tools.windows.sha256) — the pin is the trust anchor.
-download_tfs_cli() {
-  local destdir="$1" repo="$2" release="$3" sha256="$4"
-  local asset="tfs-${release#v}-windows-ucrt64.exe"
-  mkdir -p "$destdir"
-  fetch_verified "https://github.com/${repo}/releases/download/${release}/${asset}" \
-    "$sha256" "${destdir}/tfs.exe"
-  chmod +x "${destdir}/tfs.exe"
+  fetch_verified "${base}/${asset}" "$want" "${destdir}/tfs${exe}"
+  chmod +x "${destdir}/tfs${exe}"
 }
 
 # download_signer DESTDIR REPO RELEASE SHA256

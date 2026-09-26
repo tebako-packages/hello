@@ -4,9 +4,8 @@
 #   tools/build [RECIPE] VERSION PLATFORM
 #
 # fetch upstream (sha256-verified) → apply patches/ → configure → make →
-# install into a staging tree → pack the staging tree as a dwarfs/tfs
-# image with the platform's pinned imager (the factory mkdwarfs on unix,
-# the tebako tfs CLI on windows-ucrt — every download sha256-verified).
+# install into a staging tree → pack the staging tree as a limnifs/tfs
+# image with the leg's pinned tfs CLI (every download sha256-verified).
 #
 # Hermetic flags: the recipe is the source of truth. Ambient
 # CFLAGS/CPPFLAGS/LDFLAGS & friends from the host (e.g. homebrew LLVM
@@ -16,8 +15,7 @@
 # Outputs (all under out/<platform>/):
 #   payload.tfs   the packed staging tree
 #   root/         the staging tree itself (kept for inspection)
-#   tools/        verified factory tools (mkdwarfs+tebakofs, or tfs.exe
-#                 on windows-ucrt)
+#   tools/        the leg's verified tfs CLI (imager + smoke reader)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -37,8 +35,6 @@ UP_VER="$("$HERE/recipe_query" "$RECIPE" upstream.version)"
 SYSTEM="$("$HERE/recipe_query" "$RECIPE" build.system)"
 LINK_MODE="$("$HERE/recipe_query" "$RECIPE" build.link_mode)"
 RPATH_ORIGIN="$("$HERE/recipe_query" "$RECIPE" build.rpath_origin)"
-TOOLS_REPO="$("$HERE/recipe_query" "$RECIPE" tools.repo)"
-TOOLS_REL="$("$HERE/recipe_query" "$RECIPE" tools.release)"
 
 # --- hard checks: no silent fallbacks --------------------------------
 [ "$VERSION" = "$UP_VER" ] || {
@@ -135,22 +131,15 @@ for i in $(seq 0 $((N_EXES - 1))); do
   [ -x "$ROOT$p" ] || { echo "build: declared executable missing in staging tree: $p" >&2; exit 1; }
 done
 
-# --- factory tools (sha256-verified) ---------------------------------
-# windows-ucrt: the Rust tfs CLI from the tebako release pinned in the
-# recipe (the product's in-process dwarfs-t Writer). Elsewhere: the
-# libtfs factory mkdwarfs/tebakofs pair.
-case "$PLATFORM" in
-  *-windows-ucrt)
-    TFS_REPO="$("$HERE/recipe_query" "$RECIPE" tools.windows.repo)"
-    TFS_REL="$("$HERE/recipe_query" "$RECIPE" tools.windows.release)"
-    TFS_SHA="$("$HERE/recipe_query" "$RECIPE" tools.windows.sha256)"
-    download_tfs_cli "$OUT/tools" "$TFS_REPO" "$TFS_REL" "$TFS_SHA"
-    ;;
-  *)
-    download_tool mkdwarfs "$PLATFORM" "$OUT/tools" "$TOOLS_REPO" "$TOOLS_REL"
-    download_tool tebakofs "$PLATFORM" "$OUT/tools" "$TOOLS_REPO" "$TOOLS_REL"
-    ;;
-esac
+# --- imaging tool (sha256-verified) ----------------------------------
+# Every leg images and reads with the Rust tfs CLI from the tebako
+# release pinned in the recipe (the product's in-process writer —
+# limnifs, the default format). The recipe pin is cross-checked against
+# the release's own SHA256SUMS inside download_tfs.
+TFS_REPO="$("$HERE/recipe_query" "$RECIPE" tools.repo)"
+TFS_REL="$("$HERE/recipe_query" "$RECIPE" tools.release)"
+TFS_SHA="$("$HERE/recipe_query" "$RECIPE" "tools.sha256.$(asset_infix "$PLATFORM")")"
+download_tfs "$OUT/tools" "$TFS_REPO" "$TFS_REL" "$PLATFORM" "$TFS_SHA"
 
 # --- pack the payload image -------------------------------------------
 pack_image "$PLATFORM" "$OUT/tools" "$ROOT" "$OUT/payload.tfs"

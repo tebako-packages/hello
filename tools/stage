@@ -66,10 +66,10 @@ check_filled "$ROOT/__tpkg__/manifest.yaml"
 pack_image "$PLATFORM" "$OUT/tools" "$ROOT" "$IMAGE"
 
 # --- read-back: a broken payload fails THIS leg, never the publish ----
-# Re-read the repacked image with the leg's own reader (tebakofs /
-# tfs.exe): the embedded tier-1 manifest must exist and parse as YAML,
-# and every entrypoint it declares must exist in the image — proven
-# here, before anything can upload.
+# Re-read the repacked image with the leg's own reader (the same
+# verified tfs CLI on every platform): the embedded tier-1 manifest must
+# exist and parse as YAML, and every entrypoint it declares must exist
+# in the image — proven here, before anything can upload.
 # MSYS2_ARG_CONV_EXCL: the VFS paths (/__tpkg__/manifest.yaml, the
 # declared /bin/… entrypoints) must reach the native windows reader
 # verbatim — msys2 would otherwise rewrite them to host paths. The image

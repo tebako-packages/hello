@@ -11,11 +11,10 @@ identity:
   digest:
     # The not-stamped convention (a valid "<algorithm>:<64 hex>" placeholder —
     # the tpkg model rejects an empty value, and install parses tier 1
-    # strictly). Legs packed by `tfs mkimage` (windows-ucrt) get the REAL
-    # tfs-merkle-1 root stamped over this placeholder at image creation
+    # strictly). Every leg is packed by `tfs mkimage`, which stamps the
+    # REAL tfs-merkle-1 root over this placeholder at image creation
     # (spec 03 §7: the hash excludes /__tpkg__/, so the stamp is a fixed
-    # point); legs packed by the factory mkdwarfs carry the zeros until
-    # they switch imagers.
+    # point).
     tree_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
     blob_sha256: "@@BLOB_SHA256@@"
   signing: {state: unsigned}
