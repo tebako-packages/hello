@@ -23,12 +23,12 @@ build:
 # release's own SHA256SUMS at fetch time (common.sh's download_tfs).
 tools:
   repo: "tamatebako/tebako"
-  release: "v2.8.17"
+  release: "v2.8.21"
   sha256:
-    linux-gnu-x86_64: "083e4886f751901493d124cf90f8dc20a88fb9ba0877db9af1a5b42d0c1d64db"
-    macos-arm64: "f2c957bd27a3b2fea871e04bdf5c8de3689a8327a1474ca698e3936eaf239661"
-    macos-x86_64: "cda457657c1eec648091b23df0c2b3119b1af9cfc1dbd95297772ee546f7ec53"
-    windows-ucrt64: "5ba7d570621ca39de15e680d1206c21d4b9ac571aef2a639ad94a68c2683f7c7"
+    linux-gnu-x86_64: "8b752cb7bc8337960bf77f36cc375e6bc6f75b1d78e6d50c0000a33b26be51b9"
+    macos-arm64: "38f4493c1a65d37ace603db171c23d9a4580bd6053e3a3007800fbcf7a494d83"
+    macos-x86_64: "4b6eb1520cb9dce0ac3c33eb2cf28a5561037a4831e492147302d1206e1037df"
+    windows-ucrt64: "e5128ef8be90813bf9300dda39f204fff39f6d1e3eb4963128cbdfaeed88744a"
 
 # Signing (spec 09 §9 — opt-in per feedstock): on tag pushes tools/publish
 # signs every payload image (plus SHA256SUMS and the registry itself) with
@@ -43,8 +43,8 @@ signing:
   keyid: "efc3c250f7862a48" # 2026-09-09 tamatebako root primary (low 64)
   tool:
     repo: "tamatebako/tebako"
-    release: "v2.5.0"
-    sha256: "071506449681529db8cca71a4b7aa6b65414434021649b7f18ef1ad55badf1bc" # tebako-pkg-2.5.0-linux-gnu-x86_64
+    release: "v2.8.21"
+    sha256: "3f78997f1c111729eef9fbe6d017947bc7db0ca2db4b2249312d14d5e6637573" # tebako-pkg-2.8.21-linux-gnu-x86_64
 
 platforms:
   - x86_64-linux-gnu
