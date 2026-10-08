@@ -64,6 +64,13 @@ sha256_of() {
   fi
 }
 
+# exclude_globs RECIPE — the recipe's exclude: list (spec 13 §9's
+# imaging-exclusion axis), one glob per line; nothing when the axis is
+# absent (recipe_query -o's absent-list read).
+exclude_globs() {
+  "$HERE/recipe_query" -o "$1" exclude | ruby -rjson -e 'JSON.parse(STDIN.read).each { |g| puts g }'
+}
+
 # fetch URL DEST — plain download, no verification (internal).
 fetch() {
   echo "fetch: $1" >&2

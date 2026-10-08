@@ -5,7 +5,8 @@ Feedstock for **GNU hello** — the template prover for the
 model (one repo per package, release line per upstream version).
 
 - `Tebakofile` — upstream source (url + sha256), link mode, platforms,
-  declared executables, pinned factory-tool release.
+  declared executables, imaging exclusions (`exclude:`, spec 13 §9),
+  pinned factory-tool release.
 - `tools/` — the build machine: `emit_matrix`, `build`, `boot_smoke`,
   `stage`, `publish` (see `docs/conventions.md` in the index repo).
 - `manifests/payload.yaml` — spec-03 manifest template, filled by

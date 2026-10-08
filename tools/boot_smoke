@@ -46,6 +46,16 @@ TMP="$(mktemp -d "$OUT/smoke.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 "$READER" extract -d "$TMP" "$IMAGE" >/dev/null
 
+# the recipe's exclude: axis (spec 13 §9) — an excluded path never rides
+# the image; assert absence on the extracted tree, per glob
+EXCLUDES=()
+while IFS= read -r g; do EXCLUDES+=("$g"); done < <(exclude_globs "$RECIPE")
+if [ "${#EXCLUDES[@]}" -gt 0 ]; then
+  ruby "$HERE/lib/exclude_prune.rb" --check "$TMP" "${EXCLUDES[@]}" || {
+    echo "boot_smoke: FAIL — excluded path(s) present in the image" >&2; exit 1; }
+  echo "boot_smoke: exclude axis: ${#EXCLUDES[@]} pattern(s), none present in the image"
+fi
+
 # The tfs CLI restores image permission bits on extract; the existence
 # checks below are the guard (a mode-restoring reader needs no repair
 # step).
