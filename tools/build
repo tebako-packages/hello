@@ -122,6 +122,18 @@ make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
 make install DESTDIR="$TOP/$ROOT"
 cd "$TOP"
 
+# --- the recipe's exclude: axis (spec 13 §9) --------------------------
+# Dev-time trees stay out of the payload: prune every ROOT-relative path
+# matching an exclude: glob (a matched directory prunes its subtree).
+# Before the declared-executable check, so an over-broad pattern fails
+# that check loudly.
+EXCLUDES=()
+while IFS= read -r g; do EXCLUDES+=("$g"); done < <(exclude_globs "$RECIPE")
+if [ "${#EXCLUDES[@]}" -gt 0 ]; then
+  echo "build: applying ${#EXCLUDES[@]} exclude pattern(s) to the staging tree"
+  ruby "$HERE/lib/exclude_prune.rb" "$ROOT" "${EXCLUDES[@]}"
+fi
+
 # every declared executable must exist in the staging tree (windows
 # builds produce the .exe form of the canonical declared path)
 EXE_SUFFIX="$(exe_suffix_for "$PLATFORM")"

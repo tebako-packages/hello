@@ -15,6 +15,15 @@ build:
   rpath_origin: true       # $ORIGIN/../lib for dynamic builds
   deps: []                 # other feedstocks: [{name, constraint, mount}]
 
+# Imaging exclusions (spec 13 §9; the spec 03 §5 grammar — payload-root-
+# relative globs, a matched directory prunes its subtree, the manifest
+# never records the list): host documentation is dead weight inside a
+# mounted exec-tier image — the host's man/info never reads it there —
+# so it stays out of the shipped payload.
+exclude:
+  - share/info
+  - share/man
+
 # Image tooling (every leg): the tfs CLI from the tamatebako/tebako
 # release — `tfs mkimage` (limnifs, the default tebako image format) is
 # the imager and the boot smoke's info/tree/extract reader. The asset

@@ -1,41 +1,59 @@
 #!/usr/bin/env ruby
 # recipe_query — read a value from a feedstock Tebakofile.
-# Usage: recipe_query RECIPE KEY...
+# Usage: recipe_query [-o|--optional] RECIPE KEY...
 #   KEY is dot-separated; numeric segments index into arrays.
 # Scalars print as-is; arrays/hashes print as JSON (valid YAML flow).
-# Missing keys are a hard error (no silent fallbacks).
+# Missing keys are a hard error (no silent fallbacks) — except under
+# -o/--optional, where a missing (or null) key prints [] (the empty
+# list): the read mode for OPTIONAL list axes like `exclude`.
 #
 # Examples:
 #   recipe_query Tebakofile upstream.url
 #   recipe_query Tebakofile provides.executables.0.path
 #   recipe_query Tebakofile platforms
+#   recipe_query -o Tebakofile exclude
 
 require 'yaml'
 require 'json'
 
-abort "usage: recipe_query RECIPE KEY..." if ARGV.length < 2
+optional = %w[-o --optional].include?(ARGV[0]) && ARGV.shift
+abort "usage: recipe_query [-o|--optional] RECIPE KEY..." if ARGV.length < 2
 
 recipe = YAML.load_file(ARGV[0])
 
 ARGV[1..].each do |key|
   value = recipe
+  missing = false
   key.split('.').each do |seg|
-    value =
-      case value
-      when Hash
-        abort "recipe_query: key '#{key}' not found (at '#{seg}')" unless value.key?(seg)
-        value[seg]
-      when Array
-        idx = Integer(seg, exception: false)
-        abort "recipe_query: '#{seg}' in '#{key}' is not an array index" if idx.nil? || idx >= value.length
-        value[idx]
+    case value
+    when Hash
+      if value.key?(seg)
+        value = value[seg]
+      elsif optional
+        missing = true
+        break
       else
-        abort "recipe_query: '#{key}' walks past a scalar (at '#{seg}')"
+        abort "recipe_query: key '#{key}' not found (at '#{seg}')"
       end
+    when Array
+      idx = Integer(seg, exception: false)
+      if idx && idx < value.length
+        value = value[idx]
+      elsif optional
+        missing = true
+        break
+      else
+        abort "recipe_query: '#{seg}' in '#{key}' is not an array index"
+      end
+    else
+      abort "recipe_query: '#{key}' walks past a scalar (at '#{seg}')"
+    end
+  end
+  if missing || value.nil?
+    optional ? (puts '[]'; next) : abort("recipe_query: key '#{key}' is null")
   end
   case value
   when Array, Hash then puts JSON.generate(value)
-  when nil then abort "recipe_query: key '#{key}' is null"
   else puts value
   end
 end
