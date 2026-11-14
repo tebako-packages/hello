@@ -32,12 +32,12 @@ exclude:
 # release's own SHA256SUMS at fetch time (common.sh's download_tfs).
 tools:
   repo: "tamatebako/tebako"
-  release: "v2.8.76"
+  release: "v2.8.80"
   sha256:
-    linux-gnu-x86_64: "6712f110f332236c49acfa0c21899860f5c1c8b8859fa7b8e4158e45a96479fb"
-    macos-arm64: "ed0fbc63ae3b352be06bc92088b827c15ac701be23dad29b0d63588d0babc5a2"
-    macos-x86_64: "fadcd0aa96e04123245cbab672ca876440292f194030a1c8254b3b77de518a4f"
-    windows-ucrt64: "0f522a26e4df880ef4171ebbf42b70eff64b35f3d95fb33ca1d574b0654bdf3f"
+    linux-gnu-x86_64: "1e208f22ae430d62c9d1d5511f8a1e3e9bf363ead62c2c2b88fa6d8648e867c6"
+    macos-arm64: "37db8d25dda53c75a81cb36e347899780784dfccde1ba235c6f8f6078231ef1e"
+    macos-x86_64: "c5bf231609d844d688aa758582b80bf32ba53e25fb10a1aec9d6b50931335502"
+    windows-ucrt64: "2dba8aaf63b899e26a738a36860d7a9b6a8c4a0e49423bc8f7b40178ec8ffbc9"
 
 # Signing (spec 09 §9 — opt-in per feedstock): on tag pushes tools/publish
 # signs every payload image (plus SHA256SUMS and the registry itself) with
