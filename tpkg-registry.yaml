@@ -8,18 +8,18 @@ payloads:
     platforms:
       aarch64-macos:
         artifact: hello-2.12-aarch64-macos.tfs
-        sha256: d5223ed5ae4c9578812722b0ef3330dca3b659ef9e3c3b567ee3f1683622c861
+        sha256: 23bad7edbf20140ed06fd18a61fbb745d65b9d2792c1ac1ac499f9eaad818ebe
       x86_64-linux-gnu:
         artifact: hello-2.12-x86_64-linux-gnu.tfs
-        sha256: a10205685d22e4b9133695484b89a7a7474ca771c11a70f459d032361a5ca04d
+        sha256: 5ae9002aff92c3ac6069df289492c103132216e64800d295faf97aa331395e92
       x86_64-macos:
         artifact: hello-2.12-x86_64-macos.tfs
-        sha256: 5a5fd1c25c08e703c3ad87b1ac3ec2ac929dedea76629d3c5317b9f3c05018c4
+        sha256: 0b420a6d13e68f61760baff5a294588d7a5d181b102d7f17c3e10964beeddc59
       x86_64-windows-ucrt:
         artifact: hello-2.12-x86_64-windows-ucrt.tfs
-        sha256: 28965db962a35123af47688cef0345b73510d2a3935fbc606b311849000695ce
+        sha256: 302709e30ed6dacbbbc99a95b4a364771336f727f5bf072056af5f915999c5ce
     release:
-      ref: tfs:github:tebako-packages/hello:2.12.2
+      ref: tfs:github:tebako-packages/hello:2.12.2-1
     signature:
       keyid: efc3c250f7862a48
       asc: hello-2.12-aarch64-macos.tfs.asc
